@@ -1,107 +1,59 @@
-
+import warnings
 import numpy as np
 import pandas as pd
-# from pathlib import Path
-# from datetime import datetime
+# https://stackoverflow.com/a/65562060/5885810  (ecCodes in WOS)
+import xarray as xr
+import pyproj as pp
+import netCDF4 as nc4
+import geopandas as gpd
+from scipy import stats
+from numpy import random as npr
+from statsmodels.distributions.copula.api import GaussianCopula
+#from statsmodels.distributions.empirical_distribution import ECDF
+from scipy.interpolate import interp1d
+from osgeo import gdal
+from pyproj import Transformer
+from rasterio import fill
+from pointpats.random import poisson
+from tqdm import tqdm
+from zoneinfo import ZoneInfo
+from datetime import timedelta, timezone, datetime
 from dateutil.tz import tzlocal
-# # https://stackoverflow.com/a/23116937/5885810  (0 divison -> no warnings)
-# # https://stackoverflow.com/a/29950752/5885810  (0 divison -> no warnings)
-# np.seterr(divide='ignore', invalid='ignore')
+from dateutil.relativedelta import relativedelta
 
+from chunking import CHUNK_3D
+from check_input import PAR_UPDATE
+from parameters import *
 
-import warnings
+""" only necessary if Z_CUTS & SIMULATION used """
+from rasterstats import zonal_stats
+""" STORM2.0 ALSO runs WITHOUT this library!!! """
+import vonMisesMixtures as vonmises
+
 # https://stackoverflow.com/a/9134842/5885810   (supress warning by message)
 warnings.filterwarnings('ignore', message='You will likely lose important '\
     'projection information when converting to a PROJ string from another format')
 warnings.filterwarnings('ignore', message='Failed to load cfgrib - most likely '\
     'there is a problem accessing the ecCodes library.')
 
-from scipy import stats
-from numpy import random as npr
-from statsmodels.distributions.copula.api import GaussianCopula
-#from statsmodels.distributions.empirical_distribution import ECDF
-from scipy.interpolate import interp1d
-
-import geopandas as gpd
-#from matplotlib.path import Path
-from osgeo import gdal
-
-from pointpats.random import poisson
-#import rasterio
-from rasterio import fill
-import xarray as xr
-# https://stackoverflow.com/a/65562060/5885810  (ecCodes in WOS)
-
-# only necessary if you use Z_CUTS & SIMULATION
-from rasterstats import zonal_stats
-
-import pyproj as pp
-from pyproj import Transformer
-
-from datetime import timedelta, timezone, datetime
-from dateutil.relativedelta import relativedelta
-from zoneinfo import ZoneInfo
-
-import vonMisesMixtures as vonmises
-""" STORM2.0 ALSO runs WITHOUT this library!! """
-
-import netCDF4 as nc4
-from chunking import CHUNK_3D
-
-from tqdm import tqdm
-##import re
-
-
-from check_input import PAR_UPDATE
-
-from parameters import *
-
-
-# print('\nXXX')
-# print(PTOT_SC)
-# print(PTOT_SF)
-# print('YYY\n')
-
 
 #%% GREETINGS
 
 """
-STORM - STOchastic Rainfall Model STORM produces realistic regional or watershed
-rainfall under various climate scenarios based on empirical-stochastic
-selection of historical rainfall characteristics.
+STORM [STOchastic Rainfall Model] produces realistic regional or watershed rainfall under various
+climate scenarios based on empirical-stochastic selection of historical rainfall characteristics.
 
-Based on Singer, M. B., and Michaelides, K. (2017), Deciphering the expression
-of climate change within the Lower Colorado River basin by stochastic simulation
-of convective rainfall. [ https://doi.org/10.1088/1748-9326/aa8e50 ]
+Based on Singer, M. B., and Michaelides, K. (2017), Deciphering the expression of climate change
+within the Lower Colorado River basin by stochastic simulation of convective rainfall.
+[ https://doi.org/10.1088/1748-9326/aa8e50 ]
 
 version name: STORM2.0
 
 Authors:
-  Michael Singer 2017
-  Manuel F. Rios Gaona 2022
-Date created: 2015-6. Last modified 18/05/2022
-
-###-----------------------------------------------------------------------------
-
-MODE is a string in single quotations containing one of these two options:
-'Validation' for validating STORM's output against historical observations
-'Simulation' for simulating stochastic rainfall under various climate scenarios
-MODE affects where STORM generates output--either for a set of
-gauge locations for comparison with observational data (Validation) or on
-an aribitrary watershed grid (Simulation).
-
-SEASONS is a number specifying whether there are 'one' or 'two' seasons. If there are
-two seasons, pdfs will be required specifying rainfall characteristics for
-the 2nd season (Ptot, Duration, etc). Also, ptot and storminess scenarios will be required
-arguments in the function (see below). Currently, season one runs from May 1 to
-Sept 30 and season two runs from Oct 1 to Apr 30, but these dates can be changed.
-
-NUMSIMS is the integer number of x-year (NUMSIMYRS) simulations to be run
-as a batch. Each simulation will produce its own output folder that is
-timestamped with relevant simulation information
-
-NUMSIMYRS is the integer number of years in each simulation. Recommended value >=30
-
+    Michael Singer 2017
+    Manuel F. Rios Gaona 2022
+Date created : 2015/06/
+Last modified: 2022/08/31
 """
 
 
@@ -109,32 +61,19 @@ NUMSIMYRS is the integer number of years in each simulation. Recommended value >
 
 """
 # STORM2.0 RUNS WITH THE PARAMETERS BELOW (PLACED HERE FOR 'ILUSTRATIVE' PURPOSES).
-# THEIR TWEAKING SHOULD EXCLUSIVELY BE DONE IN THE FILE 'check_input.py'.
-# 'check_input.py' ALSO OFFERS A MORE DETAILED EXPLANATION ON THEIR MEANING/VALUES.
-
+# THEIR TWEAKING SHOULD EXCLUSIVELY BE DONE IN THE FILE 'parameters.py'.
+# 'parameters.py' ALSO OFFERS A MORE DETAILED EXPLANATION ON THEIR MEANING/VALUES.
 
 MODE = 'SImuLAtiON'     # Type of Run (case-insensitive). Either 'SIMULATION' or 'VALIDATION'
 SEASONS = 1             # Number of Seasons (per Run)
 NUMSIMS = 2             # Number of runs per Season
-NUMSIMYRS = 2           # Number of years per run (per Season)
+NUMSIMYRS = 3           # Number of years per run (per Season)
 
 # # PARAMETER = [ S1 ,  S2 ]
 PTOT_SC       = [ 0. , - .0]
 PTOT_SF       = [+0.0, -0. ]
 STORMINESS_SC = [ 0.0, + .0]
 STORMINESS_SF = [-0.0,  0.0]
-
-# # if you intend to model just 1 SEASON
-# # YOU CAN DO (e.g.):
-# PTOT_SC       = [0.15]
-# PTOT_SF       = [ 0.0]
-# STORMINESS_SC = [-0.1]
-# STORMINESS_SF = [ 0.0]
-# # OR (e.g.):
-PTOT_SC       = [0.15, None]
-PTOT_SF       = [ 0.0, None]
-STORMINESS_SC = [-0.1, None]
-STORMINESS_SF = [ 0.0, None]
 
 PRE_FILE = './model_input/ProbabilityDensityFunctions_TWO.csv'  # output from 'pre_processing.py'
 GAG_FILE = './model_input/data_WG/gage_data--gageNetworkWG.csv' # gage (meta-)data (optional*)
@@ -174,74 +113,151 @@ DATE_ORIGIN    = '1950-01-01'               # to store dates as INT
 
 ### only touch this parameter if you really know what you're doing ;)
 INTEGER = 2     # number of (unsigned) Bytes (2, 4, 6 or 8) to store the RAINFALL variable (into)
-
 """
-
 
 
 #%% FUNCTIONS' DEFINITION
 
+#~ DEFINE THE DAYS OF THE SEASON (to 'sample' from) ~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+def WET_SEASON_DAYS():
+    global SEED_YEAR, M_LEN, DATE_POOL, DATE_ORIGIN
+    SEED_YEAR = SEED_YEAR if SEED_YEAR else datetime.now().year
+# which season is None/void/null
+    mvoid = list(map(lambda x: None in x, zip(SEASONS_MONTHS)))
+# transform months into numbers (if passed as strings)
+    month = list(map( lambda m,v: None if v else\
+        list(map(lambda m: m if type(m) == int else datetime.strptime(m,'%b').month, m )),
+        SEASONS_MONTHS, mvoid ))
+# compute monthly duration (12 months in a year)
+    M_LEN = [None if v else \
+        [1+m.__getitem__(1)-m.__getitem__(0) if m.__getitem__(1)-m.__getitem__(0)>=0 else \
+             1+12+m.__getitem__(1)-m.__getitem__(0)] for m,v in zip(month, mvoid)]
+# construct the date.times & update their years
+    DATE_POOL = [None if v else \
+        [datetime(year=SEED_YEAR,month=m[0],day=1),
+         datetime(year=SEED_YEAR,month=m[0],day=1) + relativedelta(months=l[0])] \
+            for m,l,v in zip(month, M_LEN, mvoid)]
+    for i in range(len(DATE_POOL))[1:]:
+        DATE_POOL[i] = None if mvoid[i] else \
+            [DATE_POOL[i].__getitem__(0).replace(year=DATE_POOL[i-1].__getitem__(-1).year),
+             DATE_POOL[i].__getitem__(0).replace(year=DATE_POOL[i-1].__getitem__(-1).year)\
+                 + relativedelta(months=M_LEN[i].__getitem__(0))]
+# populate the limits with daily.datetimes
+    DATE_POOL = [None if v else \
+        pd.date_range(d.__getitem__(0), d.__getitem__(-1), freq='D', tz=TIME_ZONE) \
+            for d,v in zip(DATE_POOL, mvoid)]
+# convert DATE_ORIGIN into 'datetime' (just to not let this line hanging out all alone)
+# https://stackoverflow.com/q/70460247/5885810  (timezone no pytz)
+# https://stackoverflow.com/a/65319240/5885810  (replace timezone)
+    DATE_ORIGIN = datetime.strptime(DATE_ORIGIN, '%Y-%m-%d').replace(
+        tzinfo=ZoneInfo(TIME_ZONE))
 
 
-def NCBYTES_RAIN( INTEGER ):
-    global SCL, ADD
-    MINIMUM = 0                     # -->          0  (0 because it's unsigned)
-    MAXIMUM = +(2**( INTEGER *8 ))  # -->      65536  (largest unsigned integer of 16 Bits)
-    # MAXIMUM = +(2**( 32 ))        # --> 4294967296  (largest unsigned integer of 32 Bits)
-# if you want to work with signed integers (e.g.)...
-    # MINIMUM = -(2**(16-1))        # -->     -32768  (smallest  signed integer of 16 Bits)
-    # MAXIMUM = +(2**(16-1)-1)      # -->     +32767  (largest   signed integer of 16 Bits)
+#~ WORKING THE CATCHMENT (& ITS BUFFER) MASK(S) OUT ~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+def SHP_OPS():
+    global llim, rlim, blim, tlim, BUFFRX, CATCHMENT_MASK, XS, YS
+# read WG-catchment gauge.data (if necessary)
+    if MODE.lower() == 'validation':
+        gagnet = pd.read_csv(GAG_FILE, sep=',', header='infer', comment='#')
+    # just verify that your own gage.network has 'gage_id', X, Y, (Z optional)
+        gagnet = gagnet.loc[(gagnet['within_WG']==1) & (gagnet['with_data']==1)]
+    # put it into GeoPandas
+        gagnet = gpd.GeoDataFrame(gagnet.gage, geometry=gpd.points_from_xy(
+            gagnet.X, gagnet.Y, gagnet.Z, crs=f'EPSG:{WGEPSG}'))
+# read WG-catchment shapefile (assumed to be in WGS84)
+    wtrwgs = gpd.read_file( SHP_FILE )
+# transform it into EPSG:26912 & make the buffer
+# https://gis.stackexchange.com/a/328276/127894 (geo series into gpd)
+    wtrshd = wtrwgs.to_crs( epsg=WGEPSG )
+    BUFFRX = gpd.GeoDataFrame(geometry=wtrshd.buffer( BUFFER ))#.to_crs(epsg=4326)
+    # # OR
+    # from osgeo import ogr
+    # # https://gis.stackexchange.com/a/113808/127894
+    # BUFFRX = ogr.Open("./model_input/Bndry_buffer.shp").GetLayer(0).GetFeature(0)     # SHP's 1st-feature
+    # BUFFRX.ExportToJson()
+    # # update accordingly if used in 'gdal.Rasterize('
+    # # https://gis.stackexchange.com/a/359025/127894
+    # BUFFRX.geometry.xs(0).minimum_rotated_rectangle.boundary
 
-# # run your own (customized) tests
-# temp = 3.14159
-# seed = 1133
-# epsn = 0.006
-# while temp > epsn:
-#     temp = (seed - 0.) / (MAXIMUM - (MINIMUM + 1))
-#     seed = seed - 1
-# print( (f'starting from 0, you\'d need a max. of {seed+1} to guarantee an epsilon of {epsn}') )
-# # starting from 0, you'd need a max. of:  65 to guarantee an epsilon of 0.001
-# # starting from 0, you'd need a max. of: 327 to guarantee an epsilon of 0.005
-# # starting from 0, you'd need a max. of: 393 to guarantee an epsilon of 0.006
-# # starting from 0, you'd need a max. of: 655 to guarantee an epsilon of 0.01
-# # starting from 0, you'd need a max. of: 429496 to guarantee an epsilon of 0.0001 (for INTEGER==4)
+# infering (and rounding) the limits of the buffer-zone
+    llim = np.floor( BUFFRX.bounds.minx /X_RES ) *X_RES #+X_RES/2
+    rlim = np.ceil(  BUFFRX.bounds.maxx /X_RES ) *X_RES #-X_RES/2
+    blim = np.floor( BUFFRX.bounds.miny /Y_RES ) *Y_RES #+Y_RES/2
+    tlim = np.ceil(  BUFFRX.bounds.maxy /Y_RES ) *Y_RES #-Y_RES/2
 
-# NORMALIZING THE RAINFALL SO IT CAN BE STORED AS 16-BIT INTEGER (65,536 -> unsigned)
-# https://stackoverflow.com/a/59193141/5885810      (scaling 'integers')
-# https://stats.stackexchange.com/a/70808/354951    (normalize data 0-1)
-    iMIN = 0.
-# 655 (precision==0.01 for 16-Bit Int) seems a reasonable 'resolution'/limit for 'daily' rainfall.
-# if you want a larger precision (or your variable is in the 'low' scale,
-# ...say Summer Temperatures in Celsius) you must/could lower this limit.
-    iMAX = 655.
-    # SCL = (iMAX - iMIN) / (MAXIMUM - (MINIMUM + 1))   # if one wants UNsigned INTs
-    SCL = (iMAX - iMIN) / (MAXIMUM - (MINIMUM + 0))
-    ADD = iMAX - SCL * MAXIMUM
+# # BURN A SHP INTO RASTER & VISUALIZE IT
+#     tmp_file = 'tmp-raster.tif'
+#     tmp = gdal.Rasterize(tmp_file, BUFFRX.to_json(), xRes=X_RES, yRes=Y_RES,
+#         allTouched=True, burnValues=1, noData=0, outputType=gdal.GDT_Int16,
+#         targetAlignedPixels=True, outputBounds=[llim, blim, rlim, tlim],
+#         outputSRS=f'EPSG:{WGEPSG}', format='GTiff')
+#     var = tmp.ReadAsArray()
+#     tmp = None
 
+#     import matplotlib.pyplot as plt
+#     plt.imshow(var, interpolation='none')
+#     plt.show()
+#     # OR
+#     from rasterio.plot import show
+#     tmp_file = 'tmp-raster.tif'
+#     srcras = rasterio.open(tmp_file)
+#     fig, ax = plt.subplots()
+#     ax = rasterio.plot.show(srcras, ax=ax, cmap='viridis', extent=[
+#         srcras.bounds[0], srcras.bounds[2], srcras.bounds[1], srcras.bounds[3]])
+#     srcras.close()
+
+# BURN THE CATCHMENT SHP INTO RASTER (WITH CATCHMENT-BUFFER EXTENSION)
+# https://stackoverflow.com/a/47551616/5885810  (idx polygons intersect)
+# https://gdal.org/programs/gdal_rasterize.html
+    tmp = gdal.Rasterize(''
+        , gagnet.to_json() if MODE.lower() == 'validation' else wtrshd.to_json()
+        , xRes=X_RES, yRes=Y_RES, allTouched=True, noData=0, burnValues=1
+        , add=(1 if MODE.lower() == 'validation' else 0)
+        , outputType=gdal.GDT_Int16, targetAlignedPixels=True, format='MEM'
+        , outputBounds=[llim, blim, rlim, tlim], outputSRS=f'EPSG:{WGEPSG}'
+        # , width=(abs(rlim-llim)/X_RES).astype('u2'), height=(abs(tlim-blim)/X_RES).astype('u2')
+        )
+    CATCHMENT_MASK = tmp.ReadAsArray()
+    tmp = None           # flushing!
+    # plt.imshow(CATCHMENT_MASK, interpolation='none', aspect='equal', origin='upper',
+    #     cmap='nipy_spectral_r', extent=(llim[0], rlim[0], blim[0], tlim[0]))
+    # plt.show()
+
+    # pd.DataFrame(CATCHMENT_MASK).to_csv('rainfall_catch.csv',sep=' ',header=False,index=False)
+    # #CATCHMENT_MASK.sum() == len(gagnet)
+    # pd.DataFrame(CATCHMENT_MASK).to_csv('rainfall_gatch.csv',sep=' ',header=False,index=False)
+
+    # # https://gis.stackexchange.com/q/344942/127894   (flipped raster)
+    # ds = gdal.Open('tmp-raster.tif')
+    # gt = ds.GetGeoTransform()
+    # if gt[2] != 0.0 or gt[4] != 0.0: print ('file is not stored with north up')
+
+# DEFINE THE COORDINATES OF THE XY.AXES
+    XS, YS = list(map( lambda a,b,c: np.arange(a.item() +c/2, b.item() +c/2, c),
+                      [llim,blim],[rlim,tlim],[X_RES,Y_RES] ))
+# flip YS??
+    YS = np.flipud( YS )      # -> important...so rasters are compatible with numpys
 
 
 #-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #- CONSTRUCT THE PDFs (TO SAMPLE FROM) ------------------------------- (START) #
 #-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
-#- READ THE CSV.FILE(s) PRODUCED BY THE preprocessing.py SCRIPT ----------------
-#-------------------------------------------------------------------------------
+#~ READ THE CSV.FILE(s) PRODUCED BY THE preprocessing.py SCRIPT ~~~~~~~~~~~~~~~#
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 def READ_PDF_PAR():
     global PDFS
 # read PDF-parameters
-# https://stackoverflow.com/a/58227453/5885810
+# https://stackoverflow.com/a/58227453/5885810  (import tricky CSV)
     PDFS = pd.read_fwf(PRE_FILE, header=None)
     PDFS = PDFS.__getitem__(0).str.split(',', expand=True).set_index(0).astype('f8')
 
-# # read the ECDF so you can back-transform your copula into Int/Dur (or assume your conditional-PDFs)
-# #--revise these ECDF...especially COP_INTecdf -> way too large (generates 0's)
-#     COP_INTecdf = pd.read_csv('./model_input/CopulasECDFintensity.csv', header='infer', comment='#', sep=',')
-#     COP_DURecdf = pd.read_csv('./model_input/CopulasECDFduration.csv', header='infer', comment='#', sep=',')
 
-
-#- CONSTRUCT PDFs FROM PARAMETERS (stored in 'PDFS') ---------------------------
-#-------------------------------------------------------------------------------
-def RETRIEVE_PDF( TAG ):#TAG='RADIUS_PDF'#TAG='DATIME_VMF'#TAG='COPULA_RHO'#TAG='MAXINT_PDF'
+#~ CONSTRUCT PDFs FROM PARAMETERS (stored in 'PDFS') ~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+def RETRIEVE_PDF( TAG ):
 # TAG: core label/index (in PDFS variable) to construct the pdf on
     subset = PDFS[PDFS.index.str.contains( TAG )].dropna(how='all', axis='columns')
 
@@ -255,17 +271,17 @@ def RETRIEVE_PDF( TAG ):#TAG='RADIUS_PDF'#TAG='DATIME_VMF'#TAG='COPULA_RHO'#TAG=
         name = np.unique( list(zip( *subset.index.str.split('+') )).__getitem__(1) )
     else:
         subset = subset[ ~line ]
-        name = ['']                                     # makes "distros" 'universal'
+        name = ['']                 # makes "distros" 'universal'
 
 # https://www.geeksforgeeks.org/python-get-first-element-of-each-sublist/
     first = list(list(zip( *subset.index.str.split('+') )).__getitem__(0))
-# https://stackoverflow.com/a/6979121/5885810
+# https://stackoverflow.com/a/6979121/5885810   (numpy argsort equivalent)
 # https://stackoverflow.com/a/5252867/5885810
-# https://stackoverflow.com/a/46453340/5885810
+# https://stackoverflow.com/a/46453340/5885810  (difference between strings)
     sort_id = np.unique( list(map( lambda x: x.replace(TAG, ''), first )) )
 # the line below makes 1st-PDFs be chosen by default
     sort_id = sort_id[ np.argsort( sort_id.astype('int') )  ]
-# # TIP: USE THE LINE BELOW (REPLACING THE LINE ABOVE) IF YOU PREFER 2nd-PDFs INSTEAD
+# # TIP: USE THE LINE BELOW (REPLACING THE LINE ABOVE) IF YOU PREFER 2nd-ids-PDF INSTEAD
 # # https://stackoverflow.com/a/16486305/5885810
 #     sort_id = sort_id[ np.argsort( sort_id.astype('int') )[::-1]  ]
     group = [subset[subset.index.str.contains( f'{TAG}{i}' )].dropna(
@@ -284,14 +300,15 @@ def RETRIEVE_PDF( TAG ):#TAG='RADIUS_PDF'#TAG='DATIME_VMF'#TAG='COPULA_RHO'#TAG=
             [eval(f"stats.{item.split('+').__getitem__(-1)}"\
                   f"({','.join( i.astype('str').values.ravel() )})")\
                  for item, i in G.iterrows()] )} for G in group]
+
     return distros
 
 
-#- RETRIEVE THE PDFs & EVALUATE THEIR 'CONSISTENCY' AGAINST #SEASONS -----------
-#-------------------------------------------------------------------------------
+#~ RETRIEVE THE PDFs & EVALUATE THEIR 'CONSISTENCY' AGAINST #SEASONS ~~~~~~~~~~#
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 def CHECK_PDF():
 # https://stackoverflow.com/a/10852003/5885810
-# https://stackoverflow.com/q/423379/5885810
+# https://stackoverflow.com/q/423379/5885810    (global variables)
     global DATIME, COPULA, TOTALP, RADIUS, BETPAR, MAXINT, AVGDUR#, Z_CUTS
 
     try:
@@ -346,102 +363,12 @@ def CHECK_PDF():
 #-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
 
+#-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#- RANDOM SMAPLING --------------------------------------------------- (START) #
+#-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
-
-
-#- WORKING THE CATCHMENT (& ITS BUFFER) MASK(S) OUT ----------------------------
-#-------------------------------------------------------------------------------
-def SHP_OPS():
-    global llim, rlim, blim, tlim, BUFFRX, CATCHMENT_MASK, XS, YS
-# read WG-catchment gauge.data (if necessary)
-    if MODE.lower() == 'validation':
-        gagnet = pd.read_csv(GAG_FILE, sep=',', header='infer', comment='#')
-    # just verify that your own gage.network has 'gage_id', X, Y, (Z optional)
-        gagnet = gagnet.loc[(gagnet['within_WG']==1) & (gagnet['with_data']==1)]
-    # put it into GeoPandas
-        gagnet = gpd.GeoDataFrame(gagnet.gage, geometry=gpd.points_from_xy(
-            gagnet.X, gagnet.Y, gagnet.Z, crs=f'EPSG:{WGEPSG}'))
-# read WG-catchment shapefile (assumed to be in WGS84)
-    wtrwgs = gpd.read_file( SHP_FILE )
-# transform it into EPSG:26912 & make the buffer
-# https://gis.stackexchange.com/a/328276/127894 (geo series into gpd)
-    wtrshd = wtrwgs.to_crs( epsg=WGEPSG )
-    BUFFRX = gpd.GeoDataFrame(geometry=wtrshd.buffer( BUFFER ))#.to_crs(epsg=4326)
-    # # OR
-    # from osgeo import ogr
-    # # https://gis.stackexchange.com/a/113808/127894
-    # BUFFRX = ogr.Open("./model_input/Bndry_buffer.shp").GetLayer(0).GetFeature(0)     # SHP's 1st-feature
-    # BUFFRX.ExportToJson()
-    # # update accordingly if used in 'gdal.Rasterize('
-    # # https://gis.stackexchange.com/a/359025/127894
-    # BUFFRX.geometry.xs(0).minimum_rotated_rectangle.boundary
-
-# infering (and rounding) the limits of the buffer-zone
-    llim = np.floor( BUFFRX.bounds.minx /X_RES ) *X_RES #+X_RES/2
-    rlim = np.ceil(  BUFFRX.bounds.maxx /X_RES ) *X_RES #-X_RES/2
-    blim = np.floor( BUFFRX.bounds.miny /Y_RES ) *Y_RES #+Y_RES/2
-    tlim = np.ceil(  BUFFRX.bounds.maxy /Y_RES ) *Y_RES #-Y_RES/2
-
-# # BURN A SHP INTO RASTER & VISUALIZE IT
-# tmp_file = 'XTORM_v2_tmp-ras_02.tif'
-# tmp = gdal.Rasterize(tmp_file, BUFFRX.to_json(), xRes=X_RES, yRes=Y_RES,
-#                      allTouched=True, burnValues=1, noData=0, outputType=gdal.GDT_Int16,
-#                      targetAlignedPixels=True, outputBounds=[llim, blim, rlim, tlim],
-#                      outputSRS=f'EPSG:{WGEPSG}', format='GTiff')
-# var = tmp.ReadAsArray()
-# tmp = None
-
-# import matplotlib.pyplot as plt
-# plt.imshow(var, interpolation='none')
-# plt.show()
-# # OR
-# from rasterio.plot import show
-# tmp_file = 'XTORM_v2_tmp-ras_02.tif'
-# srcras = rasterio.open(tmp_file)
-# fig, ax = plt.subplots()
-# ax = rasterio.plot.show(srcras, extent=[
-#     srcras.bounds[0], srcras.bounds[2], srcras.bounds[1], srcras.bounds[3]],
-#     ax=ax, cmap='viridis')
-# srcras.close()
-
-# BURN THE CATCHMENT SHP INTO RASTER (WITH CATCHMENT-BUFFER EXTENSION)
-# https://stackoverflow.com/a/47551616/5885810
-# https://gdal.org/programs/gdal_rasterize.html
-    tmp = gdal.Rasterize(''
-        , gagnet.to_json() if MODE.lower() == 'validation' else wtrshd.to_json()
-        , xRes=X_RES, yRes=Y_RES, allTouched=True, noData=0, burnValues=1
-        , add=(1 if MODE.lower() == 'validation' else 0)
-        , outputType=gdal.GDT_Int16, targetAlignedPixels=True, format='MEM'
-        , outputBounds=[llim, blim, rlim, tlim], outputSRS=f'EPSG:{WGEPSG}'
-        # , width=(abs(rlim-llim)/X_RES).astype('u2'), height=(abs(tlim-blim)/X_RES).astype('u2')
-        )
-    CATCHMENT_MASK = tmp.ReadAsArray()
-    tmp = None           # flushing!
-    # plt.imshow(CATCHMENT_MASK, interpolation='none', aspect='equal', origin='upper', cmap='nipy_spectral_r', extent=(llim[0], rlim[0], blim[0], tlim[0]))
-    # plt.show()
-
-# # https://gis.stackexchange.com/questions/344942/raster-is-flipped-when-opened-as-numpy-array
-# ds = gdal.Open('XTORM_v2_tmp-ras_02.tif')
-# gt = ds.GetGeoTransform()
-# if gt[2] != 0.0 or gt[4] != 0.0: print ('file is not stored with north up')
-
-# DEFINE THE COORDINATES OF THE XY.AXES
-    XS, YS = list(map( lambda a,b,c: np.arange(a.item() +c/2, b.item() +c/2, c),
-                      [llim,blim],[rlim,tlim],[X_RES,Y_RES] ))
-# flip YS??
-    YS = np.flipud( YS )      # -> important...so rasters are compatible with numpys
-
-
-
-    # pd.DataFrame(CATCHMENT_MASK).to_csv('zcatch.csv',sep=' ',header=False,index=False)
-    # #CATCHMENT_MASK.sum() == len(gagnet)
-    # pd.DataFrame(CATCHMENT_MASK).to_csv('zgatch.csv',sep=' ',header=False,index=False)
-
-
-
-
-#- N-RANDOM SAMPLES FROM 'ANY' GIVEN PDF ---------------------------------------
-#-------------------------------------------------------------------------------
+#~ N-RANDOM SAMPLES FROM 'ANY' GIVEN PDF ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 def RANDOM_SAMPLING( PDF, N ):
 # PDF: scipy distribution_infrastructure (constructed PDF)
 # N  : number of (desired) random samples
@@ -453,19 +380,9 @@ def RANDOM_SAMPLING( PDF, N ):
     return xample
 
 
-#- RETRIEVE TOTAL SEASONAL/MONSOONAL -------------------------------------------
-#-------------------------------------------------------------------------------
-def SEASONAL_RAIN( PDF, seas, BAND='', N=1 ):#PDF=TOTALP
-# sample N values of TOTALP & transform them from ln-space
-    total = np.exp( RANDOM_SAMPLING( PDF[ seas ][ BAND ], N ) )
-# upscale (sampled) median rainfall to climatic/scaling factors
-#--multiplying (elemnent-wise, regardless the COEFF.size??) the "Ptot_ann_global" vector by the SUM/MIX of all coefficients
-    return total #* (1 + PTOT_SC[ seas ] + PTOT_SF[ seas ])
-
-
-#- TRUNCATED N-RANDOM SAMPLES FROM 'ANY' GIVEN PDF -----------------------------
-#-------------------------------------------------------------------------------
-def TRUNCATED_SAMPLING( PDF, LIMITS, N ):#PDF=RADIUS[seas][''],#LIMITS=[1,None] #PDF=BETPAR[seas]['']
+#~ TRUNCATED N-RANDOM SAMPLES FROM 'ANY' GIVEN PDF ~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+def TRUNCATED_SAMPLING( PDF, LIMITS, N ):
 # LIMITS: PDF boundaries to constrain the sampling
 # find the CDF for the limit (if any limit at all)
     LIMITS = [PDF.cdf(x) if x else None for x in LIMITS]
@@ -482,69 +399,33 @@ def TRUNCATED_SAMPLING( PDF, LIMITS, N ):#PDF=RADIUS[seas][''],#LIMITS=[1,None] 
     return xample
 
 
-# #- SAMPLE FROM A COPULA & "CONDITIONAL" I_MAX-AVG_DUR PDFs ---------------------
-# #-------------------------------------------------------------------------------
-# def COPULA_SAMPLING( COP, seas, N, BAND='' ):#COP=COPULA;BAND=''
-# # create the copula & sample from it
-#     IntDur = GaussianCopula(corr=COP[ seas ][ BAND ], k_dim=2).rvs( nobs=N )
-#     # # for reproducibility
-#     # IntDur = GaussianCopula(corr=COP[ seas ][ BAND ], k_dim=2).rvs(nobs=N, random_state=npr.RandomState(npr.PCG64(20220608)))
-#     return MAXINT[ seas ][ BAND ].ppf( IntDur[:, 0] ), AVGDUR[ seas ][ BAND ].ppf( IntDur[:, 1] )
+#~ RETRIEVE TOTAL SEASONAL/MONSOONAL ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+def SEASONAL_RAIN( PDF, seas, BAND='', N=1 ):
+# sample N values of TOTALP & transform them from ln-space
+    total = np.exp( RANDOM_SAMPLING( PDF[ seas ][ BAND ], N ) )
+    return total
 
-#- SAMPLE FROM A COPULA & "CONDITIONAL" I_MAX-AVG_DUR PDFs ---------------------
-#-------------------------------------------------------------------------------
-def COPULA_SAMPLING( COP, seas, BAND='', N=1 ):#COP=COPULA;BAND=''
+
+#~ SAMPLE FROM A COPULA & "CONDITIONAL" I_MAX-AVG_DUR PDFs ~~~~~~~~~~~~~~~~~~~~#
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+def COPULA_SAMPLING( COP, seas, BAND='', N=1 ):
 # create the copula & sample from it
 # https://stackoverflow.com/a/12575451/5885810  (1D numpy to 2D)
 # (-1, 2) -> because 'GaussianCopula' will always give 2-cols (as in BI-variate copula)
 # the 'reshape' allows for N=1 sampling
     IntDur = GaussianCopula(corr=COP[ seas ][ BAND ], k_dim=2).rvs( nobs=N ).reshape(-1, 2)
     # # for reproducibility
-    # IntDur = GaussianCopula(corr=COP[ seas ][ BAND ], k_dim=2).rvs(nobs=N, random_state=npr.RandomState(npr.PCG64(20220608))).reshape(-1, 2)
-    return MAXINT[ seas ][ BAND ].ppf( IntDur[:, 0] ), AVGDUR[ seas ][ BAND ].ppf( IntDur[:, 1] )
+    # IntDur = GaussianCopula(corr=COP[ seas ][ BAND ], k_dim=2).rvs(
+    #     nobs=N, random_state=npr.RandomState(npr.PCG64(20220608))).reshape(-1, 2)
+    i_max = MAXINT[ seas ][ BAND ].ppf( IntDur[:, 0] )
+    s_dur = AVGDUR[ seas ][ BAND ].ppf( IntDur[:, 1] )
+    return i_max, s_dur
 
 
-
-#- DEFINE THE DAYS OF THE SEASON (to 'sample' from) ----------------------------
-#-------------------------------------------------------------------------------
-def WET_SEASON_DAYS():
-    global SEED_YEAR, M_LEN, DATE_POOL, DATE_ORIGIN
-    SEED_YEAR = SEED_YEAR if SEED_YEAR else datetime.now().year
-# which season is None/void/null
-    mvoid = list(map(lambda x: None in x, zip(SEASONS_MONTHS)))
-# transform months into numbers (if passed as strings)
-    month = list(map( lambda m,v: None if v else\
-        list(map(lambda m: m if type(m) == int else datetime.strptime(m,'%b').month, m )),
-        SEASONS_MONTHS, mvoid ))
-# compute monthly duration (12 months in a year)
-    M_LEN = [None if v else \
-        [1+m.__getitem__(1)-m.__getitem__(0) if m.__getitem__(1)-m.__getitem__(0)>=0 else \
-             1+12+m.__getitem__(1)-m.__getitem__(0)] for m,v in zip(month, mvoid)]
-# construct the date.times & update their years
-    DATE_POOL = [None if v else \
-        [datetime(year=SEED_YEAR,month=m[0],day=1),
-         datetime(year=SEED_YEAR,month=m[0],day=1) + relativedelta(months=l[0])] \
-            for m,l,v in zip(month, M_LEN, mvoid)]
-    for i in range(len(DATE_POOL))[1:]:
-        DATE_POOL[i] = None if mvoid[i] else \
-            [DATE_POOL[i].__getitem__(0).replace(year=DATE_POOL[i-1].__getitem__(-1).year),
-             DATE_POOL[i].__getitem__(0).replace(year=DATE_POOL[i-1].__getitem__(-1).year)\
-                 + relativedelta(months=M_LEN[i].__getitem__(0))]
-# populate the limits with daily.datetimes
-    DATE_POOL = [None if v else \
-        pd.date_range(d.__getitem__(0), d.__getitem__(-1), freq='D', tz=TIME_ZONE) \
-            for d,v in zip(DATE_POOL, mvoid)]
-# convert DATE_ORIGIN into 'datetime' (just to not let this line hanging out all alone)
-# https://stackoverflow.com/q/70460247/5885810  (timezone no pytz)
-# https://stackoverflow.com/a/65319240/5885810  (replace timezone)
-    DATE_ORIGIN = datetime.strptime(DATE_ORIGIN, '%Y-%m-%d').replace(
-        tzinfo=ZoneInfo(TIME_ZONE))
-
-
-
-#- SAMPLE TIMES.OF.DAY (either NORMAL (default) or CIRCULAR --------------------
-#-------------------------------------------------------------------------------
-def TOD_SAMPLING( POOL, N, VMF, simy ):#POOL=DATE_POOL[0],VMF=DATIME[0]
+#~ SAMPLE TIMES.OF.DAY (either NORMAL (default) or CIRCULAR ~~~~~~~~~~~~~~~~~~~#
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+def TOD_SAMPLING( POOL, N, VMF, simy ):
 # here not only is uniformly sample the Day.Of.Season but also the Time.Of.Day
     sample = interp1d(np.linspace(0, 1, num=len(POOL), endpoint=True),
         range(len(POOL)), kind='linear', axis=0)( npr.uniform(0, 1, N) )
@@ -572,9 +453,22 @@ def TOD_SAMPLING( POOL, N, VMF, simy ):#POOL=DATE_POOL[0],VMF=DATIME[0]
     return np.round(stamps, 0).astype('u8')     # i root for .astype('u4') instead
     # return np.sort(stamps)
 
+#-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#- RANDOM SMAPLING ----------------------------------------------------- (END) #
+#-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
 
-# OUTER RING/POLYGON
+
+
+
+
+
+#-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#- RASTER MANIPULATION ----------------------------------------------- (START) #
+#-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+
+#~ CREATE AN OUTER RING/POLYGON ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 # r[0] is where the maximus radius lays/reside
 # *1e3 to go from km to m
 def LAST_RING( all_radii, CENTS ):
@@ -586,37 +480,8 @@ def LAST_RING( all_radii, CENTS ):
     return ring_last
 
 
-
-
-def ZTRATIFICATION( Z_OUT ):#Z_OUT=pd.concat( RINGO )
-    # global qants, ztats
-    if Z_CUTS:
-# calculate zonal statistics
-        # test = zonal_stats(SHP_FILE, './data_WG/dem/WGdem_wgs84.tif', stats='count min mean max median')
-        # IF YOUR DEM IS IN WGS84... RE-PROJECT THE POLYGONS TO 4326 (WGS84)
-        ztats = zonal_stats(vectors=Z_OUT.to_crs(epsg=4326).geometry, raster=DEM_FILE, stats=Z_STAT)
-        # # OTHERWISE, A FASTER APPROACH IS HAVING THE DEM/RASTER IN THE LOCAL CRS
-        # # ...i.e., DEM_FILE=='./data_WG/dem/WGdem_26912.tif'
-        # ztats = zonal_stats(vectors=Z_OUT.geometry, raster=DEM_FILE, stats=Z_STAT)
-# to pandas
-        ztats = pd.DataFrame( ztats )
-# column 'E' classifies all Z's according to the CUTS
-        ztats['E'] = pd.cut(ztats[ Z_STAT ], bins=cut_bin, labels=cut_lab, include_lowest=True)
-        ztats.sort_values(by='E', inplace=True)
-# storm centres/counts grouped by BAND
-# https://stackoverflow.com/a/20461206/5885810  (index to column)
-        qants = ztats.groupby(by='E').count().reset_index(level=0)
-    else:
-# https://stackoverflow.com/a/17840195/5885810  (1-row pandas)
-        qants = pd.DataFrame( {'E':'', 'median':len(Z_OUT)}, index=[0] )
-        # ztats = pd.DataFrame( {'E':np.repeat('',len(Z_OUT))} )
-        ztats = pd.Series( range(len(Z_OUT)) )      # 5x-FASTER! than the line above
-    return qants, ztats
-
-
-
-#- CREATE CIRCULAR SHPs (RINGS & CIRCLE) & ASSING RAINFALL TO C.RINGS ----------
-#-------------------------------------------------------------------------------
+#~ CREATE CIRCULAR SHPs (RINGS & CIRCLE) & ASSING RAINFALL TO C.RINGS ~~~~~~~~~#
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 def LOTR( RADII, MAX_I, DUR_S, BETAS, CENTS ):
     all_radii = list(map(lambda r:
         np.r_[np.arange(r, CLOSE_DIS, -RINGS_DIS), CLOSE_DIS], RADII))
@@ -643,34 +508,26 @@ def LOTR( RADII, MAX_I, DUR_S, BETAS, CENTS ):
 #     rain_ring = [pd.concat( gpd.GeoDataFrame({'rain':p, 'geometry':gpd.points_from_xy(
 #         x=[c[0]], y=[c[1]] ).buffer(r *1e3, resolution=int((4 if r < 1 else 2)**np.ceil(r)) ).boundary},
 #         crs=f'EPSG:{WGEPSG}') for p,r in zip(p,r) ) for c,r,p in zip(CENTS, all_radii, all_rain)]
-# # the above is the line.comprehension of the code below
-#     rain_ring = []
-#     for s in range(len(CENTS)):
-#         pts = [gpd.GeoDataFrame({'rain':all_rain[s][r],
-#             'geometry':gpd.points_from_xy(x=[CENTS[s,0]], y=[CENTS[s,1]]).buffer(
-#                 rtem *1e3, resolution=int((4 if r < 1 else 2)**np.ceil(rtem)) ).boundary},
-#             crs=f'EPSG:{WGEPSG}') for r, rtem in enumerate( all_radii[s] )]
-#         rain_ring.append( pd.concat(pts) )
 
     return rain_ring
 
 
-#- RASTERIZE SHPs & INTERPOLATE RAINFALL (between rings) -----------------------
-#-------------------------------------------------------------------------------
-def RASTERIZE(ALL_RINGS, OUTER_RING):#posx=32#9#-1 #ALL_RINGS=rain_ring[posx];OUTER_RING=last_ring[posx]
+#~ RASTERIZE SHPs & INTERPOLATE RAINFALL (between rings) ~~~~~~~~~~~~~~~~~~~~~~#
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+def RASTERIZE(ALL_RINGS, OUTER_RING):
 # burn the ALL_RINGS
     tmp = gdal.Rasterize('', ALL_RINGS.to_json(), xRes=X_RES, yRes=Y_RES, allTouched=True,
-                         attribute='rain', noData=0, outputType=gdal.GDT_Float64, targetAlignedPixels=True,
-                         outputBounds=[llim, blim, rlim, tlim], outputSRS=f'EPSG:{WGEPSG}', format='MEM')
-                         #, width=int(abs(rlim-llim)/X_RES), height=int(abs(tlim-blim)/X_RES) )
+        attribute='rain', noData=0, outputType=gdal.GDT_Float64, targetAlignedPixels=True,
+        outputBounds=[llim, blim, rlim, tlim], outputSRS=f'EPSG:{WGEPSG}', format='MEM')
+        #, width=int(abs(rlim-llim)/X_RES), height=int(abs(tlim-blim)/X_RES) )
     fall = tmp.ReadAsArray()
     tmp = None
     #gdal.Unlink('the_tmpfile.tif')
 # burn the mask
     tmp = gdal.Rasterize('', OUTER_RING.to_json(), xRes=X_RES, yRes=Y_RES, allTouched=True,
-                         burnValues=1, noData=0, outputType=gdal.GDT_Int16, targetAlignedPixels=True,
-                         outputBounds=[llim, blim, rlim, tlim], outputSRS=f'EPSG:{WGEPSG}', format='MEM')
-                         #, width=int(abs(rlim-llim)/X_RES), height=int(abs(tlim-blim)/X_RES) )
+        burnValues=1, noData=0, outputType=gdal.GDT_Int16, targetAlignedPixels=True,
+        outputBounds=[llim, blim, rlim, tlim], outputSRS=f'EPSG:{WGEPSG}', format='MEM')
+        #, width=int(abs(rlim-llim)/X_RES), height=int(abs(tlim-blim)/X_RES) )
     mask = tmp.ReadAsArray()
     tmp = None
 # re-touching the mask...to do a proper interpolation
@@ -680,35 +537,45 @@ def RASTERIZE(ALL_RINGS, OUTER_RING):#posx=32#9#-1 #ALL_RINGS=rain_ring[posx];OU
     return fall
 
 
+#~ COMPUTE STATS OVER A DEM.RASTER (GIVEN A SHP.POLYGON) ~~~~~~~~~~~~~~~~~~~~~~#
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+def ZTRATIFICATION( Z_OUT ):
+    # global qants, ztats
+    if Z_CUTS:
+# calculate zonal statistics
+        # test = zonal_stats(SHP_FILE, './data_WG/dem/WGdem_wgs84.tif', stats='count min mean max median')
+        # IF YOUR DEM IS IN WGS84... RE-PROJECT THE POLYGONS TO 4326 (WGS84)
+        ztats = zonal_stats(vectors=Z_OUT.to_crs(epsg=4326).geometry, raster=DEM_FILE, stats=Z_STAT)
+        # # OTHERWISE, A FASTER APPROACH IS HAVING THE DEM/RASTER IN THE LOCAL CRS
+        # # ...i.e., DEM_FILE=='./data_WG/dem/WGdem_26912.tif'
+        # ztats = zonal_stats(vectors=Z_OUT.geometry, raster=DEM_FILE, stats=Z_STAT)
+# to pandas
+        ztats = pd.DataFrame( ztats )
+# column 'E' classifies all Z's according to the CUTS
+        ztats['E'] = pd.cut(ztats[ Z_STAT ], bins=cut_bin, labels=cut_lab, include_lowest=True)
+        ztats.sort_values(by='E', inplace=True)
+# storm centres/counts grouped by BAND
+# https://stackoverflow.com/a/20461206/5885810  (index to column)
+        qants = ztats.groupby(by='E').count().reset_index(level=0)
+    else:
+# https://stackoverflow.com/a/17840195/5885810  (1-row pandas)
+        qants = pd.DataFrame( {'E':'', 'median':len(Z_OUT)}, index=[0] )
+        # ztats = pd.DataFrame( {'E':np.repeat('',len(Z_OUT))} )
+        ztats = pd.Series( range(len(Z_OUT)) )      # 5x-FASTER! than the line above
+    return qants, ztats
 
-# # VISUALISATION
-# # import matplotlib.pyplot as plt
-# # from matplotlib.patches import Circle
-# fig, ax = plt.subplots(figsize=(7,7), dpi=150)
-# ax.set_aspect('equal')
-# #plt.imshow(fall, interpolation='none', aspect='equal', origin='upper', cmap='gist_ncar_r',# alpha=0,
-# plt.imshow(STORM_MATRIX[0], interpolation='none', aspect='equal', origin='upper', cmap='gist_ncar_r',# alpha=0,
-#             extent=(llim[0], rlim[0], blim[0], tlim[0]))
-# # Now, loop through coord arrays, and create a circle at each x,y pair
-# posx = 0#32#9
-# for rr in all_radii[posx] *1e3:
-#     circ = Circle((CENTS[posx][0], CENTS[posx][1]), rr, alpha=1, facecolor='None',
-#                   edgecolor=npr.choice(['xkcd:lime green','xkcd:gold','xkcd:electric pink','xkcd:azure']))
-#     ax.add_patch(circ)
-# #plt.show()
-# plt.savefig('tmp_ras_22.jpg', bbox_inches='tight',pad_inches=0.02, facecolor=fig.get_facecolor())
-# plt.close()
-# plt.clf()
-
-# # plt.imshow(da.mask, interpolation='none', aspect='equal', origin='upper', cmap='gist_ncar_r', extent=(llim[0], rlim[0], blim[0], tlim[0]))
-# # plt.imshow(CATCHMENT_MASK, interpolation='none', aspect='equal', origin='upper', cmap='gist_ncar_r', extent=(llim[0], rlim[0], blim[0], tlim[0]))
+#-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#- RASTER MANIPULATION ------------------------------------------------- (END) #
+#-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
 
-
-def RAIN_CUBE( STORM_MATRIX, DATES, MRAIN, ragg ):#ragg=0
+#~ STORING LAYERS OF RAINFALL TO COMPUTE AGGREGATES ~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+def RAIN_CUBE( STORM_MATRIX, DATES, MRAIN, ragg ):
     data = xr.DataArray(data=STORM_MATRIX, dims=['time','row','col'])
     data.coords['time'] = DATES
-    #data.coords['time'] = pd.to_datetime(DATES, unit='s', origin=DATE_ORIGIN.replace(tzinfo=None))#.tz_localize(tz=TIME_ZONE)
+    # data.coords['time'] = pd.to_datetime(DATES, unit='s',
+    #     origin=DATE_ORIGIN.replace(tzinfo=None))#.tz_localize(tz=TIME_ZONE)
 # unless you end up with more than 256.gauges per pixel... leave it as 'u1'
     data.coords['mask'] = (('row','col'), CATCHMENT_MASK.astype('u1'))
 # step-cumulative rainfall
@@ -738,11 +605,75 @@ def RAIN_CUBE( STORM_MATRIX, DATES, MRAIN, ragg ):#ragg=0
     return ends, data, drop
 
 
-    # plt.imshow(data[19,:,:].data, interpolation='none', aspect='equal', origin='upper', cmap='gist_ncar_r', extent=(llim[0], rlim[0], blim[0], tlim[0]))
-    # plt.imshow(CATCHMENT_MASK, interpolation='none', aspect='equal', origin='upper', cmap='gist_ncar_r', extent=(llim[0], rlim[0], blim[0], tlim[0]))
+    # # VISUALISATION
+    # # import matplotlib.pyplot as plt
+    # # from matplotlib.patches import Circle
+    # fig, ax = plt.subplots(figsize=(7,7), dpi=150)
+    # ax.set_aspect('equal')
+    # # plt.imshow(fall, interpolation='none', aspect='equal', origin='upper',# alpha=0,
+    # plt.imshow(STORM_MATRIX[0], interpolation='none', aspect='equal', origin='upper',
+    #            cmap='gist_ncar_r', extent=(llim[0], rlim[0], blim[0], tlim[0]))
+    # # Now, loop through coord arrays, and create a circle at each x,y pair
+    # posx = 0#32#9
+    # for rr in all_radii[posx] *1e3:
+    #     circ = Circle((CENTS[posx][0], CENTS[posx][1]), rr, alpha=1, facecolor='None',
+    #         edgecolor=npr.choice(['xkcd:lime green','xkcd:gold','xkcd:electric pink','xkcd:azure']))
+    #     ax.add_patch(circ)
+    # # plt.show()
+    # plt.savefig('tmp_ras_22.jpg', bbox_inches='tight',pad_inches=0.02, facecolor=fig.get_facecolor())
+    # plt.close()
+    # plt.clf()
+
+    # # plt.imshow(da.mask, interpolation='none', aspect='equal', origin='upper',
+    # # plt.imshow(data[19,:,:].data, interpolation='none', aspect='equal', origin='upper',
+    # plt.imshow(CATCHMENT_MASK, interpolation='none', aspect='equal', origin='upper',
+    #            cmap='gist_ncar_r', extent=(llim[0], rlim[0], blim[0], tlim[0]))
 
 
+#-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#- NC.FILE CREATION -------------------------------------------------- (START) #
+#-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
+#~ TO SCALE 'DOWN' FLOATS TO INTEGERS ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+def NCBYTES_RAIN( INTEGER ):
+    global SCL, ADD
+    MINIMUM = 0                     # -->          0  (0 because it's unsigned)
+    MAXIMUM = +(2**( INTEGER *8 ))  # -->      65536  (largest unsigned integer of 16 Bits)
+    # MAXIMUM = +(2**( 32 ))        # --> 4294967296  (largest unsigned integer of 32 Bits)
+# if you want to work with signed integers (e.g.)...
+    # MINIMUM = -(2**(16-1))        # -->     -32768  (smallest  signed integer of 16 Bits)
+    # MAXIMUM = +(2**(16-1)-1)      # -->     +32767  (largest   signed integer of 16 Bits)
+
+# # run your own (customized) tests
+# temp = 3.14159
+# seed = 1133
+# epsn = 0.006
+# while temp > epsn:
+#     temp = (seed - 0.) / (MAXIMUM - (MINIMUM + 1))
+#     seed = seed - 1
+# print( (f'starting from 0, you\'d need a max. of {seed+1} to guarantee an epsilon of {epsn}') )
+# # starting from 0, you'd need a max. of:  65 to guarantee an epsilon of 0.001
+# # starting from 0, you'd need a max. of: 327 to guarantee an epsilon of 0.005
+# # starting from 0, you'd need a max. of: 393 to guarantee an epsilon of 0.006
+# # starting from 0, you'd need a max. of: 655 to guarantee an epsilon of 0.01
+# # starting from 0, you'd need a max. of: 429496 to guarantee an epsilon of 0.0001 (for INTEGER==4)
+
+# NORMALIZING THE RAINFALL SO IT CAN BE STORED AS 16-BIT INTEGER (65,536 -> unsigned)
+# https://stackoverflow.com/a/59193141/5885810      (scaling 'integers')
+# https://stats.stackexchange.com/a/70808/354951    (normalize data 0-1)
+    iMIN = 0.
+# 655 (precision==0.01 for 16-Bit Int) seems a reasonable 'resolution'/limit for 'daily' rainfall.
+# if you want a larger precision (or your variable is in the 'low' scale,
+# ...say Summer Temperatures in Celsius) you must/could lower this limit.
+    iMAX = 655.
+    # SCL = (iMAX - iMIN) / (MAXIMUM - (MINIMUM + 1))   # if one wants UNsigned INTs
+    SCL = (iMAX - iMIN) / (MAXIMUM - (MINIMUM + 0))
+    ADD = iMAX - SCL * MAXIMUM
+
+
+#~ SKELETON OF THE NC (OUPUT) FILE ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 def NC_FILE_I( nc, nsim ):
     global tag_y, tag_x
 # define SUB.GROUP and its dimensions
@@ -865,8 +796,9 @@ OUT ALL THIS SECTION & ACTIVATE THE SECTION "- WGS84.CRS (netcdf definition) -"
     return sub_grp#, yy.getncattr('coordinates'), xx.getncattr('coordinates')
 
 
-
-def NC_FILE_II( sub_grp, simy, KUBE, XTRA ):#KUBE=q_ain[ idx_s ];XTRA=np.concatenate(l_ong)[ idx_s ]
+#~ FILLING & CLOSURE OF THE NC (OUPUT) FILE  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+def NC_FILE_II( sub_grp, simy, KUBE, XTRA ):
 # define & fill the TIME.variable/dimension
     nctnam = f'time_{"{:02d}".format(simy+1)}'
     # nctnam = f'time_{"{:03d}".format(simy+1)}'        # if more than 100 years/simul are planned
@@ -905,35 +837,32 @@ def NC_FILE_II( sub_grp, simy, KUBE, XTRA ):#KUBE=q_ain[ idx_s ];XTRA=np.concate
 # # https://stackoverflow.com/a/28425782/5885810  (round to the nearest-nth) -> second
 #     sub_grp.variables['duration'][:,simy] = list(map(lambda x: round(x /(1/60)) *1/60, ass ))
 
+#-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#- NC.FILE CREATION ---------------------------------------------------- (END) #
+#-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
 
 #%% COLLECTOR
 
-
-
-
+#~ wrapper of all previous 'sub'-routines  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 def STORM( NC_NAMES ):
-
     global cut_lab, cut_bin
-
 # storm minimum radius depends on spatial.resolution (for raster purposes)
 # ...it must be used/assigned in KM, as its distribution was 'computed' in KM
     MIN_RADIUS = np.max([X_RES, Y_RES]) /1e3
-
-
-# define transformation constants/parameters for INTEGER rainfall-NC-output
-    NCBYTES_RAIN( INTEGER )
-
-
-    READ_PDF_PAR()
-    CHECK_PDF()
-    SHP_OPS()
-    WET_SEASON_DAYS()
-
+# define Z_CUTS labelling (if necessary)
     if Z_CUTS:
         cut_lab = [f'Z{x+1}' for x in range(len(Z_CUTS) +1)]
         cut_bin = np.union1d(Z_CUTS, [0, 9999])
-
+# define transformation constants/parameters for INTEGER rainfall-NC-output
+    NCBYTES_RAIN( INTEGER )
+# read (and check) the PDF-parameters
+    READ_PDF_PAR()
+    CHECK_PDF()
+# define some xtra-basics
+    WET_SEASON_DAYS()
+    SHP_OPS()
 
     # # https://gis.stackexchange.com/a/267326/127894     (get EPSG/CRS from raster)
     # from osgeo import osr
@@ -942,147 +871,112 @@ def STORM( NC_NAMES ):
     # tIFF_proj = osr.SpatialReference( wkt=tIFF.GetProjection() ).GetAttrValue('AUTHORITY', 1)
     # tIFF = None
 
-
-#%%
-
     print('\nRUN PROGRESS')
     print('************\n')
-
+# FOR EVERY SEASON
     for seas in range( SEASONS ):#seas=0
-
-
-# CRETE NC.FILE
-        #ncid = 'zomeFILEname100.nc'
+    # CREATE NC.FILE
         ncid = NC_NAMES[ seas ]
         nc = nc4.Dataset(ncid, 'w', format='NETCDF4')
         nc.created_on = datetime.now(tzlocal()).strftime('%Y-%m-%d %H:%M:%S %Z')#%z
 
         print(f'SEASON: {seas+1}/{SEASONS}')
-
+# FOR EVERY SIMULATION
         for nsim in range( NUMSIMS ):#nsim=0
-
             print(f'\t{MODE.upper()}: {"{:02d}".format(nsim+1)}/{"{:02d}".format(NUMSIMS)}')#, end='', flush=False)
-# 1ST FILL OF THE NC.FILE
-            #sub_grp, tag_y, tag_x = NC_FILE_I( nc, nsim )
+        # 1ST FILL OF THE NC.FILE
             sub_grp = NC_FILE_I( nc, nsim )
-
-
-            #for simy in range( NUMSIMYRS ):#simy=0
-            for simy in tqdm( range( NUMSIMYRS ), ncols=50 ):
-
-                #print(f'\tSIMUL: {nsim}  ->  YEAR {simy}...')
-
+# FOR EVERY YEAR (of the SIMULATION)
+            for simy in tqdm( range( NUMSIMYRS ), ncols=50 ):#simy=0
+            # sample total monsoonal rainfall to reach
                 MRAIN = SEASONAL_RAIN( TOTALP, seas )
-
-                # # PUT SOME MRAIN = 0 (OUTSIDE THIS LOOP)
-                # MRAIN = MRAIN * kron['PTOT'][ seas ] +\
-                #     SEASONAL_RAIN( TOTALP, seas ) * (1 + PTOT_SC[ seas ] + PTOT_SF[ seas ])
-
+            # increase/decrease (such) total monsoonal rainfall
                 MRAIN = SEASONAL_RAIN( TOTALP, seas ) * (1 + PTOT_SC[ seas ] + ((nsim +1) *PTOT_SF[ seas ]))
-
-                #MRAIN = np.array([99])
-
+                # MRAIN = np.array([99])    # FOR TESTING PURPOSES
+            # initialize some VOID arrays
                 r_ain = []
                 l_ong = []
-
-                #NUM_S = 150       # number of storms initial seed
-# for the WGc-case we start with (~30 days/month * 5 months (wet season duration)) = 150
-# ...hence, we're assuming that (initially) we have 1 storm/day (then we continue 'half-fing' this seed)
+            # for the WGc-case we start with (~40 days/month * 5 months (WET-S1)) = 200
+            # ...hence, we're assuming that (initially) we have more than 1 storm/day
+            # ...(then we continue 'half-fing' the above seed)
                 NUM_S = 40 * M_LEN[ seas ].__getitem__(0)
+                # NUM_S = 150               # number of storms initial seed
                 CUM_S = 0
-
+# DO IT UNTIL THE TOTAL RAINFALL IS REACHED OR NO MORE STORMS TO COMPUTE
                 while CUM_S < MRAIN and NUM_S >= 2:
-
-                    # npr.RandomState(npr.Philox(54321))
-                    # # the above generator is NOT equal to all the ones below
-                    # # all the below generators "fall back" to the same Initial.State / Seed
-                    # npr.RandomState(npr.Philox(npr.seed(54321)))
-                    # npr.RandomState(npr.MT19937(npr.seed(54321)))
-                    # npr.RandomState(npr.seed(54321))
-                    # npr.seed(54321)
+                # sample random storm centres
+                # https://stackoverflow.com/a/69630606/5885810  (rnd pts within shp)
                     CENTS = poisson( BUFFRX.geometry.xs(0), size=NUM_S )
-                    # https://stackoverflow.com/a/69630606/5885810  (rnd pts within shp)
 
-# # plot
-# import matplotlib.pyplot as plt
-# import cartopy.crs as ccrs
-# fig = plt.figure(figsize=(10,10), dpi=300)
-# ax = plt.axes(projection=ccrs.epsg(WGEPSG))
-# ax.set_aspect(aspect='equal')
-# for spine in ax.spines.values(): spine.set_edgecolor(None)
-# fig.tight_layout(pad=0)
-# #plt.figure()
-# buffrX.plot(edgecolor='xkcd:amethyst', alpha=1., zorder=2, linewidth=.77, ls='dashed', facecolor='None', ax=ax)
-# plt.scatter(storm_centre[:,0], storm_centre[:,1], marker='P', s=37, edgecolors='none')
-# #plt.show()
-# plt.savefig('XTORM_v2_cpoisson.png', bbox_inches='tight',pad_inches=0.00, facecolor=fig.get_facecolor())
-# plt.close()
-# plt.clf()
+                # # you wanna PLOT the STORM CENTRES??
+                #     import matplotlib.pyplot as plt
+                #     import cartopy.crs as ccrs
+                #     fig = plt.figure(figsize=(10,10), dpi=300)
+                #     ax = plt.axes(projection=ccrs.epsg(WGEPSG))
+                #     ax.set_aspect(aspect='equal')
+                #     for spine in ax.spines.values(): spine.set_edgecolor(None)
+                #     fig.tight_layout(pad=0)
+                #     buffrX.plot(edgecolor='xkcd:amethyst', alpha=1., zorder=2, linewidth=.77,
+                #                 ls='dashed', facecolor='None', ax=ax)
+                #     plt.scatter(CENTS[:,0], CENTS[:,1], marker='P', s=37, edgecolors='none')
+                #     plt.show()
 
-
-
-                    # # if FORCE_BRUTE was used -> truncation deemed necessary to avoid
-                    # # ...ULTRA-high intensities [chopping almost the PDF's 1st 3rd]
+                # # if FORCE_BRUTE was used -> truncation deemed necessary to avoid
+                # # ...ULTRA-high intensities [chopping almost the PDF's 1st 3rd]
                     # BETAS = TRUNCATED_SAMPLING( BETPAR[ seas ][''], [-0.008, +0.078], NUM_S )
-                    BETAS = RANDOM_SAMPLING( BETPAR[ seas ][''], NUM_S )
                     # [BETPAR[ seas ][''].cdf(x) if x else None for x in [-.035, .035]]
-
-
+                    BETAS = RANDOM_SAMPLING( BETPAR[ seas ][''], NUM_S )
+                # sampling maxima radii
                     RADII = TRUNCATED_SAMPLING( RADIUS[ seas ][''], [1* MIN_RADIUS, None], NUM_S )
-                    # RADII = TRUNCATED_SAMPLING( RADIUS[seas][''], [0, None], NUM_S )
-
-
-
-                    #RINGO = pd.concat( LAST_RING( RADII, CENTS ) )
+                # polygon(s) for maximum radii
                     RINGO = LAST_RING( RADII, CENTS )
 
-# define pandas to split the Z_bands (or not)
+                # define pandas to split the Z_bands (or not)
                     qants, ztats = ZTRATIFICATION( pd.concat( RINGO ) )
-# compute copulas given the Z_bands (or not)
+                # compute copulas given the Z_bands (or not)
                     MAX_I, DUR_S = list(map(np.concatenate, zip(* qants.apply( lambda x:\
                         COPULA_SAMPLING(COPULA, seas, x['E'], x['median']), axis='columns') ) ))
-# sort back the arrays
+                # sort back the arrays
                     MAX_I, DUR_S = list(map( lambda A: A[ np.argsort( ztats.index ) ], [MAX_I, DUR_S] ))
-
-                    # MAX_I, DUR_S = COPULA_SAMPLING( COPULA, seas, NUM_S, BAND='' )
-
-                    # IF THERE IS A TRUNCATION IN DURATION... GET RID OF IT HERE
-                    # ...AND UPDATE (POSTERIOR & ANTERIOR) LENGTHS OF ARRAYS!!
+                # increase/decrease maximum intensites
                     MAX_I = MAX_I * (1 + STORMINESS_SC[ seas ] + ((nsim +1) *STORMINESS_SF[ seas ]))
+                # IF THERE IS A TRUNCATION IN DURATION... GET RID OF IT HERE
+                # ...AND UPDATE (POSTERIOR & ANTERIOR) LENGTHS OF ARRAYS!!
 
-
-
+                # sample some dates (for NC.storing)
                     DATES = TOD_SAMPLING( DATE_POOL[ seas ], NUM_S, DATIME[ seas ], simy )
-
-                    # RINGS, RINGO = LOTR( RADII, MAX_I, DUR_S, BETAS, CENTS )
+                # compute granular rainfall over intermediate rings
                     RINGS = LOTR( RADII, MAX_I, DUR_S, BETAS, CENTS )
-                    # COLLECTING THE STORMS
+                # COLLECTING THE STORMS
                     STORM_MATRIX = list(map(RASTERIZE, RINGS, RINGO))
-
+                # rainfall aggregation
                     CUM_S, rain, remove = RAIN_CUBE( STORM_MATRIX, DATES, MRAIN, CUM_S )
 
                     r_ain.append( rain )
                     l_ong.append( np.delete(DUR_S, remove) )
 
-                    NUM_S = int(NUM_S /2)
-                    #NUM_S = int(NUM_S /1.5)
+                # 'decreasing the counter'
+                    NUM_S = int(NUM_S /2)#/1.5)
 
+            # WARN IF THERE IS NO CONVERGING
                 assert not (CUM_S < MRAIN and NUM_S < 2), 'Iteration for SIMULATION '\
                     f'{nsim}: YEAR {simy} not converging!\nTry a larger initial '\
                     'seed (i.e., variable "NUM_S"). If the problem persists, it '\
                     'might be very likely that the catchment (stochastic) '\
                     'parameterization is not adequate.' # the more you increase the slower it gets!!
 
+            # stack (rainfall) arrays
                 q_ain = xr.concat(r_ain, dim='time')
-
                 idx_s = q_ain.time.argsort().data       # sort indexes
 
-                NC_FILE_II( sub_grp, simy, q_ain[ idx_s ], np.concatenate(l_ong)[ idx_s ] )#KUBE=q_ain[ idx_s ];XTRA=np.concatenate(l_ong)[ idx_s ]
+            # LAST FILL OF THE NC.FILE
+                NC_FILE_II( sub_grp, simy, q_ain[ idx_s ], np.concatenate(l_ong)[ idx_s ] )
 
         nc.close()
 
 
-#%% CALL THE MODULE(S)
+#%%
 
 if __name__ == '__main__':
-    STORM( ['zomeFILEname7_testMAIN.nc'] )  # testing for only ONE Season!
+    # testing for only ONE Season!
+    STORM( [f'./model_output/{MODE[:3].upper()}_test.nc'] )

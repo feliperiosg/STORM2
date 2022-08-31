@@ -8,14 +8,14 @@ You can either modify/tweak them here (thus avoiding passing them again when
 running STORM from the command line) or passing/defining them righ from the
 command line whe running STORM.
 For an 'in-prompt' help (on these parameters) type:
-    "python STORM2.py -h"   (from your CONDA environment or Terminal)
-    "%%python STORM2.py -h" (from your Python console)
+    "python storm.py -h"    (from your CONDA environment or Terminal)
+    "%%python storm.py -h"  (from your Python console)
 """
 
 MODE = 'SImuLAtiON'     # Type of Run (case-insensitive). Either 'SIMULATION' or 'VALIDATION'
 SEASONS = 1             # Number of Seasons (per Run)
 NUMSIMS = 2             # Number of runs per Season
-NUMSIMYRS = 2           # Number of years per run (per Season)
+NUMSIMYRS = 3           # Number of years per run (per Season)
 
 """
 PTOT_SC       = Signed scalar specifying the step change in the observed wetness (TOTALP)
@@ -55,7 +55,7 @@ be passed from the command line. Therefore, their modification/tweaking must
 carried out here.
 """
 
-PRE_FILE = './model_input/ProbabilityDensityFunctions_TWO.csv'  # output from 'pre_processing.py'
+PRE_FILE = './model_input/ProbabilityDensityFunctions_ONE.csv'  # output from 'pre_processing.py'
 GAG_FILE = './model_input/data_WG/gage_data--gageNetworkWG.csv' # gage (meta-)data (optional*)
 # GAG_FILE = None
 SHP_FILE = './model_input/shp/WG_Boundary.shp'                  # catchment shape-file in WGS84

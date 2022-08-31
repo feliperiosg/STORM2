@@ -3,23 +3,22 @@ from pandas import DataFrame
 from pathlib import Path
 from datetime import datetime
 from dateutil.tz import tzlocal
+from parameters import *
+
 # https://stackoverflow.com/a/23116937/5885810  (0 divison -> no warnings)
 # https://stackoverflow.com/a/29950752/5885810  (0 divison -> no warnings)
 np.seterr(divide='ignore', invalid='ignore')
 
 
+#%% FUNCTIONS' DEFINITION
 
-from parameters import *
-
-
-# REDEFINE LOCAL?GLOBS BY args
+#~ replace FILE.PARAMETERS with those read from the command line ~~~~~~~~~~~~~~#
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 def PAR_UPDATE( args ):
     for x in list(vars( args ).keys()):
 # https://stackoverflow.com/a/2083375/5885810   (exec global... weird)
         exec(f'globals()["{x}"] = args.{x}')
-    # print(PTOT_SC)
-    # print(PTOT_SF)
-
+    # print([PTOT_SC, PTOT_SF])
 
 
 #~ SO WELCOME() CAN EVENTUALLY BE USED WITHOUT PREVIOUSLY RUNNING ASSERT() ~~~~#
@@ -204,9 +203,8 @@ def WELCOME():
     return NC_NAMES
 
 
-#%% CALL THE MODULE(S)
+#%%
 
 if __name__ == '__main__':
-    #from parameters import *
     ASSERT()
     WELCOME()
