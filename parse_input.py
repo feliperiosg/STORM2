@@ -62,5 +62,5 @@ def PARCE( parser ):
 
 if __name__ == '__main__':
     import argparse
-    parser = argparse.ArgumentParser(description = 'STOchastic Rainfall Modelling [STORM v2.0]')
+    parser = argparse.ArgumentParser(description = 'STOchastic Rainstorm Model [STORM v2.0]')
     PARCE( parser )

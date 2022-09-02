@@ -1,10 +1,17 @@
+"""
+To run this script type:
+    "python storm.py"    (from your CONDA environment or Terminal)
+    "%%python storm.py"  (from your Python console)
+"""
+
+
 #~ executes the PARSER (first), so no need to upload all.libs to ask.4.help ~~~#
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 def READ():
     import argparse
     import parse_input
     global argsup
-    parser = argparse.ArgumentParser(description = 'STOchastic Rainfall Modelling [STORM]')
+    parser = argparse.ArgumentParser(description = 'STOchastic Rainstorm Model [STORM v2.0]')
 # updated args
     argsup = parse_input.PARCE( parser )
     # print( argsup )

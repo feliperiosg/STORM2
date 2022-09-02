@@ -1,4 +1,3 @@
-import vonMisesMixtures as vonmises
 import numpy as np
 import pandas as pd
 import geopandas as gpd
@@ -10,6 +9,9 @@ from fitter import Fitter
 from statsmodels.distributions.copula.api import GaussianCopula
 #from statsmodels.distributions.empirical_distribution import ECDF
 from parameters import Z_CUTS, WGEPSG
+
+""" STORM2.0 ALSO runs WITHOUT this library!!! """
+import vonMisesMixtures as vonmises
 
 #~ INSTALLING THE vonMisesMixtures PACKAGE ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#

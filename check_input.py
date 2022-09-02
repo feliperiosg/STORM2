@@ -178,8 +178,8 @@ def WELCOME():
         f'{c.strip()}.nc', range(SEASONS), PTOT_SCENARIO, STORMINESS_SCENARIO ))
 # print the CORE INFO
     form_out = '".02f"'
-    print('CORE SETTINGS')
-    print('*************\n')
+    print('\nRUN SETTINGS')
+    print('************\n')
     print(f'Type of Model Run: {MODE.upper()}')
     print(f"Number of Seasons: {['ONE', 'TWO'][SEASONS-1]}")
     print(f'Number of {MODE.lower().capitalize()}s: {NUMSIMS}')
@@ -198,7 +198,6 @@ def WELCOME():
 # https://stackoverflow.com/a/45120812/5885810  (print/create string padding)
     print(*[( k.ljust(max(map(len, NC_NAMES)),' ') ).rjust(max(map(len, NC_NAMES))+4,' ')\
             for k in NC_NAMES], sep='\n')
-    print('\n')
 
     return NC_NAMES
 

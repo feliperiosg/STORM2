@@ -22,7 +22,6 @@ from dateutil.tz import tzlocal
 from dateutil.relativedelta import relativedelta
 
 from chunking import CHUNK_3D
-from check_input import PAR_UPDATE
 from parameters import *
 
 """ only necessary if Z_CUTS & SIMULATION used """
@@ -117,6 +116,15 @@ INTEGER = 2     # number of (unsigned) Bytes (2, 4, 6 or 8) to store the RAINFAL
 
 
 #%% FUNCTIONS' DEFINITION
+
+#~ replace FILE.PARAMETERS with those read from the command line ~~~~~~~~~~~~~~#
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+def PAR_UPDATE( args ):
+    for x in list(vars( args ).keys()):
+# https://stackoverflow.com/a/2083375/5885810   (exec global... weird)
+        exec(f'globals()["{x}"] = args.{x}')
+    # print([PTOT_SC, PTOT_SF])
+
 
 #~ DEFINE THE DAYS OF THE SEASON (to 'sample' from) ~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
@@ -872,7 +880,7 @@ def STORM( NC_NAMES ):
     # tIFF = None
 
     print('\nRUN PROGRESS')
-    print('************\n')
+    print('************')
 # FOR EVERY SEASON
     for seas in range( SEASONS ):#seas=0
     # CREATE NC.FILE
@@ -880,7 +888,7 @@ def STORM( NC_NAMES ):
         nc = nc4.Dataset(ncid, 'w', format='NETCDF4')
         nc.created_on = datetime.now(tzlocal()).strftime('%Y-%m-%d %H:%M:%S %Z')#%z
 
-        print(f'SEASON: {seas+1}/{SEASONS}')
+        print(f'\nSEASON: {seas+1}/{SEASONS}')
 # FOR EVERY SIMULATION
         for nsim in range( NUMSIMS ):#nsim=0
             print(f'\t{MODE.upper()}: {"{:02d}".format(nsim+1)}/{"{:02d}".format(NUMSIMS)}')#, end='', flush=False)
