@@ -41,10 +41,8 @@ There are roughly three? ways to generate this file:
 - <ins><a name="man"></a>Manual</ins>: You can directly (over-)write [this](./model_input/ProbabilityDensityFunctions_ONE.csv) (or [this](./model_input/ProbabilityDensityFunctions_TWO.csv)) PDFs-file with whatever parameters (you think) suit your data the best.
 For instance, if you want to model Total Seasonal Rainfall ```TOTALP``` for Season 1 (in the logarithmic-space) as a [left-skewed Gumbel](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.gumbel_l.html#scipy.stats.gumbel_l) distribution with $\mu = 5.51$, and $\sigma^2 = 0.266$, write ```TOTALP_PDF1+gumbel_l,5.51,0.266```. If you want to model, for Season 2 (and for a -*previously defined*- altitude band "Z3"), Maximum Rainfall Intensity (at the storm's centre) ```MAXINT``` as a [generalized Pareto](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.genpareto.html#scipy.stats.genpareto) distribution with $\mu = 0.1655$, $\sigma^2 = 0.45431$, and $skewness = 6.427$, write ```MAXINT_PDF2+Z3+genpareto,0.1655,0.45431,6.427```, for instance.
 
-- <ins>Automatic</ins>: You can use the [pre_processing](./pre_processing.py) script. If have gauge data stored/post-processed in [this way](./model_input/data_WG/gage_data--1953Aug18-2022Jan01_Jun-Oct_eventh.csv) (for storm rainfall events), and [this way](./model_input/data_WG/gage_data--1953Aug-2022Jan_Jun-Oct_aggregateh.csv) (for monthly aggregated rainfall), this script seeks through the data, fits the best PDF for each variable (for all the requested seasons), and generates the aforementioned PDFs file.
-
-GIF
-![Magda Search Demo](docs/assets/searchdemo420p.gif)
+- <ins>Automatic</ins>: You can use the [pre_processing](./pre_processing.py) script. If have gauge data stored/post-processed in [this way](./model_input/data_WG/gage_data--1953Aug18-2022Jan01_Jun-Oct_eventh.csv) (for storm rainfall events), and [this way](./model_input/data_WG/gage_data--1953Aug-2022Jan_Jun-Oct_aggregateh.csv) (for monthly aggregated rainfall), this script seeks through the data, fits the best PDF for each variable (for all the requested seasons), and generates the aforementioned PDFs file.</br>
+![pre_processing](./xtras/pre_processsing.gif)
 
 - <ins>Hybrid:</ins> If you have knowledge/idea of the PDFs that describe the storm statistics (see [<ins>Manual</ins>](#man)), you can still use the [pre_processing](./pre_processing.py) script to pass these parameters as (Python) [*dictionaries*](https://docs.python.org/3/tutorial/datastructures.html#dictionaries).
 
@@ -105,7 +103,7 @@ optional arguments:
   --version             show program's version number and exit
 ```
 
-GIF
+![storm_run](./xtras/storm.gif)
 
 ##
 
