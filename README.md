@@ -105,6 +105,13 @@ optional arguments:
 
 ![storm_run](./xtras/storm.gif)
 
+## how does it look like?
+<p align="center">
+    <img src=./xtras/animation.gif />
+</p>
+
+The above GIF is produced by the [animation script](./xtras/animation.py).
+
 ##
 
 Authored and maintained by Manuel F.
