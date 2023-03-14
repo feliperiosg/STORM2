@@ -28,7 +28,7 @@ STORM 2 (STOchastic Rainstorm Model) is an upgrade on [STORM 1.0](https://github
 
 ## HOW TO RUN STORM 2
 
-To smoothly run STORM 2 you'd essentially need two components/files: [PDFs](#pdf) and [Parameters](#par).
+To smoothly run STORM 2 you'd essentially need two components/files: [PDFs](#pdf) and [PARAMETERS](#par).
 
 ### <a name="pdf"></a>```PDFs```
 
