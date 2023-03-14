@@ -21,7 +21,6 @@ STORM 2 (STOchastic Rainstorm Model) is an upgrade on [STORM 1.0](https://github
 
 - Modelling of storm intensity and duration follows a (bi-variate) Gaussian copula framework.
 - Modelling of such Intensity-Duration copulas can be applied at different elevation bands/ranges within the catchment.
-- Modelling of storm occurrence follows a ~~Poisson Point Process~~ (i.e., random sampling from a uniform distribution, scaled to the season's duration).
 - Modelling of storm's starting day-of-year (DOY), and time-of-day (TOD) follows a Circular Statistics approach (i.e., mixture of von Mises PDFs).
 - Output compressed into (geo-referenced) NetCDF files, readily available for visualization (e.g., via [Panoply](https://www.giss.nasa.gov/tools/panoply/)).
 - Pre-processing module to construct all necessary PDFs from gauge data.
