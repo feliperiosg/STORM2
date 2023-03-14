@@ -65,6 +65,14 @@ def ASSERT():
                     f' {", ".join([SC, SF])} variables for Season {i+1}.\nPlease,'\
                     ' ensure that the aforementioned variables contain numerical '\
                     f'values, if you are indeed planning to model Season {i+1}.'
+        # does the progression factor (SF) add to 1.0 or more than 1.0??
+            assert abs( eval(f'{SF}[{i}]') *NUMSIMYRS ) <1,\
+                f'Scalar Overflooding!\nPlease, ensure that over the {NUMSIMYRS}-year'\
+                f' {MODE.upper()}, the cumulative sum of the progressive trend scalar'\
+                f' {SF} be always less than 1.0.'
+        # is the scalar factor (SC) larger (or equal) than 1.0??
+            assert abs( eval(f'{SC}[{i}]') ) <1, f'Scalar Overflooding!\nPlease, '\
+                f'ensure a value less than 1.0 for any step change scalar in {SC}.'
         some_sum = np.nansum((
             np.asarray(eval(SC), dtype='f8') / np.asarray(eval(SC), dtype='f8'),
             2* np.asarray(eval(SF), dtype='f8') / np.asarray(eval(SF), dtype='f8')
@@ -141,7 +149,7 @@ def INFER_SCENARIO( stepchange, scaling_factor, tab_x, tab_sign ):
     str_vec = list(map( lambda A,B: f"{A}{B}", tab_x.loc[sum_vec,'Var1'].values,
         np.concatenate([tab_sign.loc[tab_sign.Var2.isin([x]), 'Var1'].values\
             for x in sign_ar[~np.isnan(sign_ar)]]) ))
-# # the above line 'works' as there few values to look for. otherwise, faster methods are:
+# # the above line 'works' as there are few values to look for. otherwise, faster methods are:
 # #tab_sign.loc[np.take(np.argsort(tab_sign.Var2), np.searchsorted(tab_sign.Var2[np.argsort(tab_sign.Var2)], sign_ptot)), 'Var1'].values
 # #tab_sign.loc[np.argsort(tab_sign.Var2)[np.searchsorted(tab_sign.Var2[np.argsort(tab_sign.Var2)], sign_ptot)], 'Var1'].values
 # # https://stackoverflow.com/a/8251668/5885810     (find elements in pd)
@@ -153,10 +161,10 @@ def INFER_SCENARIO( stepchange, scaling_factor, tab_x, tab_sign ):
 def WELCOME():
     global PTOT_SCENARIO, STORMINESS_SCENARIO
 # tables to correlate signs & scenarios
-    tab_sign = DataFrame({'Var1':['', '+', '-'], 'Var2':[0, 1, -1]})
-    tab_ptot = DataFrame({'Var1':['ptotC', 'ptotS', 'ptotT', 'n/a'], 'Var2':[0, 1, 2, 3]})
-    tab_storm = DataFrame({'Var1':['stormsC', 'stormsS', 'stormsT', 'n/a'],
-                            'Var2':[0, 1, 2, 3]})
+    tab_sign  = DataFrame({'Var1':['', '+', '-']                            ,'Var2':[0, 1,-1   ]})
+    tab_ptot  = DataFrame({'Var1':['ptotC', 'ptotS', 'ptotT', 'n/a']        ,'Var2':[0, 1, 2, 3]})
+    # tab_ptot  = DataFrame({'Var1':['ptotC', 'ptotS', 'ptotT', 'special']        ,'Var2':[0, 1, 2, 3]})
+    tab_storm = DataFrame({'Var1':['stormsC', 'stormsS', 'stormsT', 'n/a']  ,'Var2':[0, 1, 2, 3]})
     """
   'ptotC' == Stationary conditions / Control Climate
   'ptotS' == Step Change (increase/decrese) in the observed wetness

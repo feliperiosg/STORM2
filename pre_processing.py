@@ -3,7 +3,7 @@ import pandas as pd
 import geopandas as gpd
 from tqdm import tqdm
 from datetime import datetime, timedelta
-from scipy import optimize
+from scipy import optimize, stats
 from scipy.spatial import distance
 from fitter import Fitter
 from statsmodels.distributions.copula.api import GaussianCopula
@@ -44,19 +44,26 @@ tqdm.pandas(ncols=50)#, desc="progress-bar")
 
 #~ PATHS TO INPUT/OUTPUT FILES & GLOBAL VARIABLES DEFINITION ~~~~~~~~~~~~~~~~~~#
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-# input files
-AGGRE_DATA = './model_input/data_WG/gage_data--1953Aug-2022Jan_Jun-Oct_aggregateh.csv'
-EVENT_DATA = './model_input/data_WG/gage_data--1953Aug18-2022Jan01_Jun-Oct_eventh.csv'
-GAUGE_META = './model_input/data_WG/gage_data--gageNetworkWG.csv'
-# output files
-OUPUT_FILE = './model_input/ProbabilityDensityFunctions_TWO.csv'
-# # if you want to redefine Z_CUTS here
-# Z_CUTS = [1350, 1500]
+# INPUT FILES
+AGGRE_DATA = './model_input/data_WG/gage_data--1953Aug-1999Dec_aggregateh--ANALOG.csv'
+EVENT_DATA = './model_input/data_WG/gage_data--1953Aug18-1999Dec29_eventh--ANALOG.csv'
+GAUGE_META = './model_input/data_WG/gage_data--gageNetworkWG--ANALOG.csv'
+# AGGRE_DATA = './model_input/data_WG/gage_data--1953Aug-2022Dec_aggregateh.csv'
+# EVENT_DATA = './model_input/data_WG/gage_data--1953Aug18-2022Dec14_eventh.csv'
+# GAUGE_META = './model_input/data_WG/gage_data--gageNetworkWG.csv'
+
+# OUPUT FILES
+OUPUT_FILE = './model_input/ProbabilityDensityFunctions_TWO--ANALOG.csv'
+# OUPUT_FILE = './model_input/ProbabilityDensityFunctions_TWO.csv'
+
+# if you want to redefine Z_CUTS here
+Z_CUTS = [1350, 1500]
 # # for no INT-DUR copula at different altitudes
 # Z_CUTS = []
-# Z_CUTS = None
+# # Z_CUTS = None
 
 # global variables
+# distros commonly attribute to precipitation
 PTOT_PDFS = ['argus','betaprime','burr','burr12','chi','chi2','exponweib','exponpow'
              ,'gausshyper','gengamma','genhalflogistic','gumbel_l','gumbel_r','invgauss'
              ,'invweibull','johnsonsb','johnsonsu','ksone','kstwobign','loggamma'
@@ -64,8 +71,8 @@ PTOT_PDFS = ['argus','betaprime','burr','burr12','chi','chi2','exponweib','expon
              ,'tukeylambda','weibull_min','weibull_max']
 
 # these distros work for either AVG.DUR and/or BETA (BRUTE_FORCE)
-RSKW_PDFS = ['alpha','betaprime','burr','f','fisk','gamma','geninvgauss','gilbrat'
-             ,'invgamma','invweibull','johnsonsb','johnsonsu','ksone','lognorm','mielke'
+RSKW_PDFS = ['alpha','betaprime','burr','f','fisk','gamma','geninvgauss','invgamma'
+             ,'invweibull','johnsonsb','johnsonsu','ksone','lognorm','mielke'
              ,'moyal','norm','powerlognorm','rayleigh','rice','wald','weibull_min']
 
 IMAX_PDFS = ['truncexpon','pareto','loguniform','lomax','halfgennorm','genpareto'
@@ -74,6 +81,21 @@ IMAX_PDFS = ['truncexpon','pareto','loguniform','lomax','halfgennorm','genpareto
 # these heavily?-"gaussian" distributions work for the BETA (FORCE-BRUTE)
 NORM_PDFS = ['cauchy','cosine','exponnorm','gumbel_r','gumbel_l','hypsecant'
              ,'laplace','logistic','moyal','norm','powernorm']
+
+# discrete 'sensical' distributions to try on DOY.data
+DISC_PDFS = ['nbinom','nhypergeom','betabinom']#,'poisson']
+# the boundaries for parameter.estimation
+disc_bnds = [((0,366),(0,1)), ((0,366*2),(0,1e3),(0,100)), ((0,366*2),(0,100),(0,100))]#, ((0,366),)]
+param_sel = 2                                       # 1 for "nllf"  |  2 for "BIC"
+"""
+The "POISSON" distribution gave the best stats (either NegLogLik & BIC);
+nevertheless, it was left out as it doesn't generate values close to the season.limits.
+Hence we prefer the use of the other three functions, and the posterior
+    truncation (within the season.limits) of the sampled values
+"""
+
+# use 'VMF' is the DOY (Day of Year) is fitted via Circular.Statistics (comment it out OTHERWISE!)
+USE_DOY = 'VMF'
 
 # to censor gauge.data until the network reaches "uniformity"
 TRIM_YEAR = 1963
@@ -124,6 +146,8 @@ def READ_DATA_EVENT():
     one['int_mmh'] = one.Depth.multiply( 1/one.Duration * 60 )
 # [OPTIONAL] transform HOUR into "negative" radians (for Circular Statistics analyses)
     one['hRAD'] = one.hour /24 * 2*np.pi -np.pi
+# [OPTIONAL] transform DOY  into "negative" radians (for Circular Statistics analyses)
+    one['dRAD'] = (( one.doy -1 + one.hour/24 ) /one.doy.max()) * 2*np.pi -np.pi
 # [VERY OPTIONAL] compute #STORMS_PER_DAY
     one['ns_day'] = ( one.loc[:,['gage','year','doy','hour']].groupby(
         by=['gage','year','doy']) ).transform('count')
@@ -144,9 +168,9 @@ def FIT_PDF( DATA, N, NAME, DISTROS ):
         best_fit = Fitter(DATA, distributions=DISTROS)
 # store the fits
         best_fit.fit()
-        #best_fit.summary()
+        # best_fit.summary()
 # SELECT THE PARAMETERS FOR THE BEST.FIT (i prefer 'BIC')
-        #PDFFIT = best_fit.get_best(method = 'sumsquare_error')
+        # PDFFIT = best_fit.get_best(method = 'sumsquare_error')
         PDFFIT = best_fit.get_best(method = 'bic')
 
 # # SOME ALTERNATIVES for TOTAL MONSOONAL PRECIPITATION  -> 'gumbel_l' (best.fit)
@@ -480,26 +504,27 @@ def COPULA( max_copula, N ):
 
 #-CIRCULAR.STATS in PYTHON via 'vonMisesMixtures'-------------------------------
 
-def TOD( radians, NMIX, N ):
+def TOD( radians, NMIX, N, TAG ):
 # radians: hour of the day in RADians (pi == 12:00; 2*pi == 00:00/24:00)
-# NMIX   : number of vonMises-Fisher mixtures
+# NMIX   : number of von Mises mixtures
 # N      : (either 1 or 2) suffix relating the season for which the pdf is fitted
+# TAG    : the output tag to label the output with (either 'DATIME' or 'DOYEAR')
 
     '''
 WARNING!: this component is computationally intensive, and heavily depends on
 the amount of points/data one is trying to fit.
 the line ' mixture = vonmises.mixture_pdfit(radians, n=NMIX, threshold=1e-8) '
 takes ~14.5 minutes to compute/fit (no parallel) ~230K (radian) values for a
-fitting of 'just' 3 mixtures (~1 second for 1 mixture)... in a machine with the following specs:
+fitting of 'just' 3 mixtures in a machine with the following specs:
 Processor       -> 12th Gen Intel(R) Core(TM) i9-12900K, 3.20 GHz, 16 Core(s), 24 Logical Processor(s)
 Installed RAM   -> 32.0 GB (31.7 GB usable)
 ~15 minutes is about 3x as long as the total spent by all other components!!.
 we found that 3 mixtures is a very optimal fit for the Walnut Gulch catchment.
 thus, the more mixtures one wants to add the more (exponential) time one needs.
 therefore it is very advisable to:
-a) run it just once (offline if possible), for 2 or more mixtures, and then
-    then pass the resulting np.array (with the parameters) to the MIXTURE variable
-    for/in future iterations.
+a) run it just once, for 2 or more mixtures, and then then pass the resulting
+    np.array (exported into 'OUTPUT_FILE') to the MIXTURE variable for/in future
+    iterations.
 b) fit just 1 mixture... if high-accuracy is not a high-demand... which it's the
     case for STORM2.0 with regard to this component.
 c) comment out this component (in this script).
@@ -513,43 +538,161 @@ c) comment out this component (in this script).
         MIXTURE = radians
     else:
 # https://fraschelle.frama.io/mixture-of-von-mises-distributions/BasicUsage.html
-        MIXTURE = vonmises.mixture_pdfit(radians, n=NMIX, threshold=1e-8)
+        MIXTURE = vonmises.mixture_pdfit (radians, n=NMIX, threshold=1e-8 )
 
-# # RESULTS FOR 1-MIXTURE FOR WALNUT GULCH CATCHMENT
+# # RESULTS FOR 3-MIXTURES FOR WALNUT GULCH CATCHMENT (ANALOG SET ONLY) **optimum**
 #         MIXTURE = np.array(
-#             [[ 1.        ],
-#               [1.44096952],
-#               [1.02412649]]
-#             )
-#             Probs. vonMises(mu=xx.x-h, kappa=xx.xxxx)
-#             -----------------------------------------
-#             1.0000 vonMises(mu=17.5041, kappa=1.0241)
-
-# # RESULTS FOR 3-MIXTURES FOR WALNUT GULCH CATCHMENT (very first run)
+#             [[4.3229866008934936e-01, 3.1433986726443774e-01, 2.5336147264620779e-01],
+#              [2.5362023640410842e+00, 1.7002920476200680e+00, 6.8943802569831281e-01],
+#              [4.7209161669312405e-01, 3.1990662021486749e+00, 6.4466332373429092e+00]] )
+#         pprint( MIXTURE, 24 )
+#         Probs. vonMises(mu=xx.x-h, kappa=xx.xxxx)
+#         -----------------------------------------
+#         0.4323 vonMises(mu=21.6876, kappa=0.4721) +
+#         0.3143 vonMises(mu=18.4946, kappa=3.1991) +
+#         0.2534 vonMises(mu=14.6335, kappa=6.4466)
+# # RESULTS FOR 3-MIXTURES (ANALOG SET ONLY) FROM "pre_processing_circular.R"
 #         MIXTURE = np.array(
-#             [[  0.30571647,  0.21751198,  0.47677155],
-#               [-2.8554979 ,  0.63499782,  1.711601  ],
-#               [ 0.36807874,  6.61593317,  2.26518188]]
-#             )
-#             Probs. vonMises(mu=xx.x-h, kappa=xx.xxxx)
-#             -----------------------------------------
-#             0.3057 vonMises(mu= 1.0928, kappa=0.3681) +
-#             0.2175 vonMises(mu=14.4255, kappa=6.6159) +
-#             0.4768 vonMises(mu=18.5378, kappa=2.2652)
-
-# # RESULTS FOR 3-MIXTURES FOR WALNUT GULCH CATCHMENT (most recent run)
-#         MIXTURE = np.array(
-#             [[  0.33029448,  0.22250998,  0.44719555],
-#               [-3.04486903,  0.64182193,  1.71450856],
-#               [ 0.35123045,  6.55350374,  2.3901821 ]]
-#             )
+#             [[3.12420687e-01, 4.33473238e-01, 2.54106076e-01],
+#              [1.70161361e+00, 2.53188866e+00, 6.90215812e-01],
+#              [3.21905433e+00, 4.73468500e-01, 6.43691294e+00]] )
+#         pprint( MIXTURE, 24 )
+#         Probs. vonMises(mu=xx.x-h, kappa=xx.xxxx)
+#         -----------------------------------------
+#         0.3124 vonMises(mu=18.4997, kappa=3.2191) +
+#         0.4335 vonMises(mu=21.6711, kappa=0.4735) +
+#         0.2541 vonMises(mu=14.6364, kappa=6.4369)
 
     with open(OUPUT_FILE, 'a') as f:
-        [ f.write( f"DATIME_VMF{N}+m{x+1},{','.join(map(str, [*xtem]))}\n" )\
+        [ f.write( f"{TAG}_VMF{N}+m{x+1},{','.join(map(str, [*xtem]))}\n" )\
             for x, xtem in enumerate(MIXTURE.T) ]
 
 #-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #- FIT MIXTURE.of.VON.MISES.(-FISHER) to TIMES_OF_DAY ------------------ (END) #
+#-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+
+
+#-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#- DAY OF THE YEAR (DOY) --------------------------------------------- (START) #
+#-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+
+#~ DISCRETE PDF.FITTING for DOY ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+def FIT_DIST( data, dist, bnds ):
+# data: day of the year (integer)
+# dist: PMF.name to fit
+# bnds: tuple of boundaries (min,max) for parameter.estimation
+    fitted = eval(f'stats.fit(stats.{dist}, data, {bnds})')
+    # ks = stats.kstest(data, dist, fitted.params, 99)
+# https://stanfordphd.com/BIC.html
+    bic = np.nan if (np.isinf(fitted.nllf()) or np.isnan(fitted.nllf())) else\
+        -2 *fitted.nllf() + len(bnds)*np.log( len(data) )
+    # fitted.plot()
+    # plt.show()
+
+# # SOME ALTERNATIVES for DISCRETE DOY.PMF  -> 'poisson' (best.fit)
+# # ('pmf.name', 'loglik', 'BIC', 'par1', 'par2', etc...)
+# ('nbinom', 651821.7053205305, -1303619.7993912024, 64.0, 0.22140611133237353, 0.0)
+# ('nhypergeom', 652970.3199918666, -1305905.2231089454, 617.0, 535.0, 35.0, 0.0)
+# ('betabinom', 652419.352958415, -1304803.2890420423, 726.0, 42.402959107643966, 94.38504575868984, 0.0)
+# ('poisson', 783036.4089066491, -1566061.012188369, 225.0608359100977, 0.0)
+
+# # TESTS TO EVALUATE RELATION BETWEEN BIC & Log-Likelihood
+# import statsmodels.api as sm
+# data = one.loc[one.S=='W', 'doy']
+# binc = sm.NegativeBinomial(data, np.ones(len(data)), loglike_method='nb1').fit(disp=True)
+# poic = sm.Poisson(data, np.ones(len(data))).fit(disp=True)
+# -2 *binc.llf + len(binc.params)*np.log( len(data) ) # bIC
+# binc.summary2()
+# """
+#                      Results: NegativeBinomial
+# ===================================================================
+# Model:              NegativeBinomial Pseudo R-squared: 0.000
+# Dependent Variable: doy              AIC:              1303618.6963
+# Date:               2023-02-19 16:24 BIC:              1303638.3075
+# No. Observations:   134004           Log-Likelihood:   -6.5181e+05
+# Df Model:           0                LL-Null:          -6.5181e+05
+# Df Residuals:       134003           LLR p-value:      nan
+# Converged:          1.0000           Scale:            1.0000
+# ---------------------------------------------------------------------
+#             Coef.    Std.Err.       z        P>|z|    [0.025   0.975]
+# ---------------------------------------------------------------------
+# const       5.4164     0.0004   14141.9782   0.0000   5.4156   5.4171
+# alpha       3.4240     0.0171     200.3376   0.0000   3.3905   3.4575
+# ===================================================================
+# """
+
+# returns: [distro.name, neg.log.likelihood, BIC, estimated.parameters]
+    return (dist, fitted.nllf(), bic, *fitted.params)
+
+
+#~ function.to.nicely.print.parameters ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#-https://fraschelle.frama.io/mixture-of-von-mises-distributions/BasicUsage.html
+def pprint( params, SCALAR ):
+    # SCALAR = 365
+    s = "Probs. vonMises(mu=xx.x-h, kappa=xx.xxxx)"
+    print(s)
+    print("-"*len(s))
+    n = params.shape[1]
+    s = ""
+    for line in range(n):
+        tup = list( tuple(params[:,line]) )
+        tup[1] = (tup[1] +np.pi) /(2*np.pi) *SCALAR
+    # use the 2.lines below (instead) if you used that weird "Nrand" column!
+    #    tup[1] = tup[1] if tup[1]>=0 else np.pi -tup[1]
+    #    tup[1] = tup[1] *1/(2*np.pi) *24
+        s += "{:.4f} vonMises(mu={:.4f}, kappa={:.4f})".format(*tuple(tup))
+        if line!=n-1:
+            s += " + \n"
+    print( s )
+
+
+#~ CALLS 'FIT_DIST' & SELECTS THE BEST FIT for DOY ~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+def DAYOFYEAR( data, N ):
+# fit the discrete PMF
+    dfit = list(map(lambda y,z: FIT_DIST( data, y,z ), tqdm( DISC_PDFS, ncols=50 ), disc_bnds ))
+# selecting the best.fit based on BIC (or NegLogLik)
+    fitd = list(zip(*dfit))[ param_sel ]
+    fitd = dfit[ fitd.index(np.min( fitd )) ]
+# https://stackoverflow.com/a/20540948/5885810
+    dtwo = dict(zip( list(map(lambda x: f'p{x}', range(len( fitd[3:] )))), fitd[3:] ))
+# create the whole 'binom'.dict and call FIT_PDF to write it down
+    ddic = eval( f'dict({ fitd[0] }={ dtwo })' )
+# export the PDF
+    FIT_PDF( ddic, N, "DOYEAR_PMF", [] )
+
+# # fit the continuous VMF
+# # RESULTS FOR 5-MIXTURES FOR WALNUT GULCH CATCHMENT (ANALOG SET ONLY) **optimum**
+#         MIXTURE = np.array(
+#             [[7.1793832553957826e-02, 8.5709143292117873e-02, 5.4631313068818396e-02, 9.8271993676566555e-02, 6.8959371740853792e-01],
+#              [1.5448202344935775e+00, 2.0950532997037094e-01, 1.9015008192343976e+00, 1.1608274364741620e+00, 5.5023815988073743e-01],
+#              [9.1340520493766306e+01, 6.2316491294279110e+01, 1.1464696492692285e+02, 4.8672386254158290e+01, 6.9364503709825778e+00]] )
+#         pprint( MIXTURE, 365 )
+#         Probs. vonMises(mu=xx.x-h, kappa=xx.xxxx)
+#         -----------------------------------------
+#         0.0718 vonMises(mu=272.2410, kappa= 91.3405) +
+#         0.0857 vonMises(mu=194.6705, kappa= 62.3165) +
+#         0.0546 vonMises(mu=292.9611, kappa=114.6470) +
+#         0.0983 vonMises(mu=249.9343, kappa= 48.6724) +
+#         0.6896 vonMises(mu=214.4642, kappa=  6.9365)
+# # RESULTS FOR 5-MIXTURES (ANALOG SET ONLY) FROM "pre_processing_circular.R"
+#         MIXTURE = np.array(
+#             [[4.56582417e-02, 5.27487992e-02, 1.27401049e-02, 4.43134401e-01, 4.45718453e-01],
+#              [1.56155245e+00, 1.90222888e+00,-4.22426346e-01, 3.10674800e-01, 9.47535760e-01],
+#              [1.31680596e+02, 1.15425898e+02, 2.88989175e+02, 1.66106095e+01, 9.32419377e+00]] )
+#         pprint( MIXTURE, 365 )
+#         Probs. vonMises(mu=xx.x-h, kappa=xx.xxxx)
+#         -----------------------------------------
+#         0.0457 vonMises(mu=273.2130, kappa=131.6806) +
+#         0.0527 vonMises(mu=293.0034, kappa=115.4259) +
+#         0.0127 vonMises(mu=157.9606, kappa=288.9892) +
+#         0.4431 vonMises(mu=200.5476, kappa=16.6106) +
+#         0.4457 vonMises(mu=237.5438, kappa=9.3242)
+
+#-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#- DAY OF THE YEAR (DOY) ----------------------------------------------- (END) #
 #-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
 
@@ -569,6 +712,10 @@ happen to be bi-seasonal.
     print('\nreading datsets...', end='', flush=True)
     ten_cum = READ_DATA_CUMULATIVE()
     one = READ_DATA_EVENT()
+    # # RUN THIS (ONCE) ONLY TO COMPUTE COMPUTE THIS EXERCISE in cRan
+    # ((one.loc[one.S=='W',['dRAD']] +np.pi) /(2*np.pi) * one.doy.max()).to_csv('pre_processing--ddoy_ANALOG_W.csv', header=False, index=False, mode='w')
+    # ((one.loc[one.S=='W',['hRAD']] +np.pi) /(2*np.pi) *24).to_csv('pre_processing--dour_ANALOG_W.csv', header=False, index=False, mode='w')
+
 #-GAGE.GEOPOSITIONS (and their CROSS_DISTANCE) MUST BE DEFINED GLOBALLY
     READ_META_DATA()
     print(' done!')
@@ -576,7 +723,7 @@ happen to be bi-seasonal.
     print('computing seasonal totals...', end='', flush=True)
 # if you need to compute the SEASONAL-PDF from your data
     MONSOON( ten_cum, SEASON='W', SMAX=5, N=1 )
-    #MONSOON( ten_cum, SEASON='W2', SMAX=3, N=2 )
+    # MONSOON( ten_cum, SEASON='W2', SMAX=3, N=2 )
 # if the PDFs are passed manually, the names of the PDF-parameters are irrelevant...
 # ...as long as they're not identical! (e.g., 'loc','scale' == 'mean','var')
     FIT_PDF( {'norm': {'loc':5.362910217624112, 'scale':0.3167606398478469}}, 2,\
@@ -588,16 +735,16 @@ happen to be bi-seasonal.
 # pass elements with at least 3.gauges (or more)... for a given season
     print('fitting pdfs...', end='')#, flush=False)
     FIT_PDF( core_n.loc[(core_n.numb>=3) & (core_n.S=='W'), 'cmax'], 1, 'RADIUS_PDF', RSKW_PDFS )
-    #FIT_PDF( core_n.loc[(core_n.numb>=3) & (core_n.S=='W2'), 'cmax'], 2, 'RADIUS_PDF', RSKW_PDFS )
+    # FIT_PDF( core_n.loc[(core_n.numb>=3) & (core_n.S=='W2'), 'cmax'], 2, 'RADIUS_PDF', RSKW_PDFS )
     FIT_PDF( {'gamma': {'a':4.399625814327896, 'loc':-0.47511306843943046,\
                          'scale':1.3991123114790807}} , 2, 'RADIUS_PDF', [] )
     print(' done!')
 
     print('\ncomputing decorrelation parameters:')
     pars, max_copula = RECESS_DATA( core_n, 'W' )
-    #pars_two, max_copula_two = RECESS_DATA( core_n, 'W2' )
+    # pars_two, max_copula_two = RECESS_DATA( core_n, 'W2' )
     FIT_PDF( pars[:,1], 1, 'BETPAR_PDF', NORM_PDFS )
-    #FIT_PDF( pars_two[:,1], 2, 'BETPAR_PDF', NORM_PDFS )
+    # FIT_PDF( pars_two[:,1], 2, 'BETPAR_PDF', NORM_PDFS )
     FIT_PDF( {'burr': {'c':2.351235686277189, 'd':0.8505976651919634,\
                        'loc':-0.0011370351719608585, 'scale':0.08377708092591916}}\
             , 2, 'BETPAR_PDF', [] )
@@ -605,32 +752,65 @@ happen to be bi-seasonal.
 # #-ONLY.USE.THESE IMAX.&.ADUR PDFs IF.YOU'RE.NOT.USING ECDFs.FROM.COPULAS!!
 #     print('\ncomputing maximum intesity & average duration...', end='', flush=False)
 #     FIT_PDF( pars[:,0], 1, 'MAXINT_PDF', IMAX_PDFS )
-#     #FIT_PDF( pars_two[:,0], 2, 'MAXINT_PDF', IMAX_PDFS )
+#     # FIT_PDF( pars_two[:,0], 2, 'MAXINT_PDF', IMAX_PDFS )
 #     FIT_PDF( {'lomax': {'c':5.432548872708142, 'loc':0.06999999933105766,\
 #                         'scale':26.87198199648127}}, 2, 'MAXINT_PDF', [] )
 #     FIT_PDF( max_copula.davg, 1, 'AVGDUR_PDF', RSKW_PDFS )
-#     #FIT_PDF( max_copula_two.davg, 2, 'AVGDUR_PDF', RSKW_PDFS )
+#     # FIT_PDF( max_copula_two.davg, 2, 'AVGDUR_PDF', RSKW_PDFS )
 #     FIT_PDF( {'wald': {'loc':-2.553691071708469,'scale':112.48428969036745}}, 2,\
 #             'AVGDUR_PDF', [] )
 #     print(' done!')
 
     print('\ncomputing I_max & D_avg & Int-Dur copulas...', end='', flush=True)
     COPULA( max_copula, 1 )
-    #COPULA( max_copula_two, 2 )
+    # COPULA( max_copula_two, 2 )
     COPULA( max_copula, 2 )
     print(' done!')
 
-    print('computing starting times...', end='', flush=True)
-    #TOD( one.loc[one.S=='W', 'hRAD'], NMIX=3, N=1 )
-    mixture_for_WGc = np.array(
-        [[  0.33029448,  0.22250998,  0.44719555],
-          [-3.04486903,  0.64182193,  1.71450856],
-          [ 0.35123045,  6.55350374,  2.3901821 ]]
-        )
-    TOD( mixture_for_WGc, NMIX=3, N=1 )
-    #TOD( one.loc[one.S=='W2', 'hRAD'], NMIX=3, N=2 )
-    TOD( one.loc[one.S=='W', 'hRAD'], NMIX=1, N=2 )
+# if "vonMisesMixtures" couldn't be installed... you CAN comment.off this whole TOD
+    print('computing VMF for Time-Of-Day...', end='', flush=True)
+    mixture_for_tod = np.array( # -> the one from R
+        [[2.49156475242312e-01, 3.24520271490722e-01, 4.26323253266966e-01],
+         [3.83327280990811e+00, 4.84895620149114e+00, 5.69886684675002e+00],
+         [6.39091201120178e+00, 3.06431018164439e+00, 4.69994281181170e-01]] )
+    mixture_for_tod[1,:] = mixture_for_tod[1,:] -np.pi
+    # mixture_for_tod = np.array( # -> the one from PYTHON
+    #     [[2.468419551426534e-01, 3.315907829508499e-01, 4.215672619064808e-01],
+    #      [6.893273101866058e-01, 1.703495074238532e+00, 2.575690215589140e+00],
+    #      [6.418276632248997e+00, 3.000253688430609e+00, 4.649344363713587e-01]] )
+    TOD( mixture_for_tod, NMIX=mixture_for_tod.shape.__getitem__(-1), N=1, TAG='DATIME' )
+    # TOD( one.loc[one.S=='W', 'hRAD'], NMIX=3, N=1, TAG='DATIME' )
+    # TOD( one.loc[one.S=='W2','hRAD'], NMIX=1, N=2, TAG='DATIME' )
+    TOD( one.loc[one.S=='W', 'hRAD'], NMIX=1, N=2, TAG='DATIME' )
     print(' done!')
+
+# if "vonMisesMixtures" couldn't be installed... you CAN still work with DAYOFYEAR()
+    if "USE_DOY" in globals():
+        print('computing VMF for Day-Of-Year...', end='', flush=True)
+        # mixture_for_doy = np.array( # -> the one from R (3-mix)
+        #     [[4.04905655044381e-02, 3.06199138239520e-01, 6.53310296256042e-01],
+        #      [5.06206592560194e+00, 4.35421320240035e+00, 3.56594990301999e+00],
+        #      [1.22898067787712e+02, 9.26957303636785e+00, 9.34243664965950e+00]] )
+        # mixture_for_doy[1,:] = mixture_for_doy[1,:] -np.pi
+        mixture_for_doy = np.array( # -> the one from R (5-mix)
+            [[4.44824317699613e-02, 1.17663927485551e-02, 4.65681610396558e-01, 4.2495217043963e-01, 5.31173946453013e-02],
+             [4.71114482356166e+00, 2.72067414568930e+00, 3.46668770085889e+00, 4.1033358440160e+00, 5.04882607523782e+00],
+             [1.29046671192187e+02, 2.87172811856793e+02, 1.55871683696581e+01, 9.4627962328381e+00, 1.04719296092994e+02]] )
+        mixture_for_doy[1,:] = mixture_for_doy[1,:] -np.pi
+        # mixture_for_doy = np.array( # -> the one from PYTHON
+        #     [[5.446271224933757e-02, 8.954689198507723e-02, 7.054990890263783e-02, 8.732366808837940e-02, 6.981168187745506e-01],
+        #      [1.907409236571684e+00, 2.286006656480273e-01, 1.551363989955984e+00, 1.172647712414930e+00, 5.586619737368196e-01],
+        #      [1.053227046311876e+02, 5.197011694272198e+01, 8.719112504916305e+01, 5.291419173073581e+01, 6.828147043994408e+00]] )
+        TOD( mixture_for_doy, NMIX=mixture_for_doy.shape.__getitem__(-1), N=1, TAG='DOYEAR' )
+        # TOD( one.loc[one.S=='W', 'dRAD'], NMIX=5, N=1, TAG='DOYEAR' )
+        # TOD( one.loc[one.S=='W2','dRAD'], NMIX=1, N=2, TAG='DOYEAR' )
+        TOD( one.loc[one.S=='W', 'dRAD'], NMIX=1, N=2, TAG='DOYEAR' )
+        print(' done!')
+    else:
+        print('computing PDF/VMF for Day-Of-Year:')
+        DAYOFYEAR( one.loc[one.S=='W', 'doy'], N=1 )
+        # DAYOFYEAR( one.loc[one.S=='W2', 'doy'], N=2 )
+        FIT_PDF( {'nbinom': {'n':64.0, 'p':0.22140611133237353, 'loc':0}} , 2, 'DOYEAR_PMF', [] )
 
     print('\n¡PRE-PROCESS succesfully preprocessed, have FUN!.')
 

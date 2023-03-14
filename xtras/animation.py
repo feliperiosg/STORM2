@@ -19,9 +19,11 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 #%% INPUT PARAMETERS
 
 SHP_FILE = './model_input/shp/WG_Boundary.shp'
-nc_file  = './model_output/SIM_220901T1142_S1_ptotC_stormsC.nc'
+nc_file  = './model_output/SIM_230313T1747_S1_ptotC_stormsC.nc'
+# nc_file  = './model_output/VAL_230301T1709_S1_ptotC_stormsC.nc'
 ncgroup  = 'simulation_02'
-png_tag  = 'animation_i'
+# ncgroup  = 'validation_13'
+png_tag  = 'animotion_i'
 
 
 #%% FUNCTIONS' DEFINITION

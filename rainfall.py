@@ -46,13 +46,13 @@ Based on Singer, M. B., and Michaelides, K. (2017), Deciphering the expression o
 within the Lower Colorado River basin by stochastic simulation of convective rainfall.
 [ https://doi.org/10.1088/1748-9326/aa8e50 ]
 
-version name: STORM2.0
+version name: STORM2
 
 Authors:
     Michael Singer 2017
     Manuel F. Rios Gaona 2022
 Date created : 2015/06/
-Last modified: 2022/08/31
+Last modified: 2023/03/13
 """
 
 
@@ -64,26 +64,28 @@ Last modified: 2022/08/31
 # 'parameters.py' ALSO OFFERS A MORE DETAILED EXPLANATION ON THEIR MEANING/VALUES.
 
 MODE = 'SImuLAtiON'     # Type of Run (case-insensitive). Either 'SIMULATION' or 'VALIDATION'
+# MODE = 'valiDaTION'     # Type of Run (case-insensitive). Either 'SIMULATION' or 'VALIDATION'
 SEASONS = 1             # Number of Seasons (per Run)
 NUMSIMS = 2             # Number of runs per Season
 NUMSIMYRS = 3           # Number of years per run (per Season)
 
-# # PARAMETER = [ S1 ,  S2 ]
-PTOT_SC       = [ 0. , - .0]
-PTOT_SF       = [+0.0, -0. ]
-STORMINESS_SC = [ 0.0, + .0]
-STORMINESS_SF = [-0.0,  0.0]
+# # PARAMETER = [ S1 ]
+PTOT_SC       = [0.00]
+PTOT_SF       = [ 0.0]
+STORMINESS_SC = [-0.0]
+STORMINESS_SF = [+0.0]
 
-PRE_FILE = './model_input/ProbabilityDensityFunctions_TWO.csv'  # output from 'pre_processing.py'
-GAG_FILE = './model_input/data_WG/gage_data--gageNetworkWG.csv' # gage (meta-)data (optional*)
+PRE_FILE = './model_input/ProbabilityDensityFunctions_ONE--ANALOG.csv'      # output from 'pre_processing.py'
+# PRE_FILE = './model_input/ProbabilityDensityFunctions_ONE--ANALOG-pmf.csv'  # output from 'pre_processing.py'
+GAG_FILE = './model_input/data_WG/gage_data--gageNetworkWG--DIGITAL.csv'    # gage (meta-)data (optional*)
 # GAG_FILE = None
-SHP_FILE = './model_input/shp/WG_Boundary.shp'                  # catchment shape-file in WGS84
-DEM_FILE = './model_input/dem/WGdem_wgs84.tif'                  # aoi raster-file (optional**)
-# DEM_FILE = './model_input/dem/WGdem_26912.tif'                # aoi raster-file in local CRS (***)
+SHP_FILE = './model_input/shp/WG_Boundary.shp'                      # catchment shape-file in WGS84
+DEM_FILE = './model_input/dem/WGdem_wgs84.tif'                      # aoi raster-file (optional**)
+# DEM_FILE = './model_input/dem/WGdem_26912.tif'                    # aoi raster-file in local CRS (***)
 # DEM_FILE = None
-OUT_PATH = './model_output'                                     # output folder
+OUT_PATH = './model_output'                                         # output folder
 
-Z_CUTS = None           # (or Z_CUTS = []) for INT-DUR copula nodelling regardless altitude
+# Z_CUTS = None           # (or Z_CUTS = []) for INT-DUR copula modelling regardless altitude
 Z_CUTS = [1350, 1500]   # in meters!
 Z_STAT = 'median'       # statistic to retrieve from the DEM ['mean' or 'min'|'max'?? not 'count']
 
@@ -94,9 +96,16 @@ BUFFER    = 5000        # in meters! -> buffer distance (out of the catchment)
 CLOSE_DIS = 0.15        # in km -> small circle emulating the storm centre's point/dot
 RINGS_DIS = 2.1         # in km -> distance between (rainfall) rings
 
+MIN_DUR = 2             # in minutes!
+MAX_DUR = 60*24*5       # in minutes! -> 5 days (in this case)
+# # OR:
+# MIN_DUR = []          # use 'void' arrays if you want NO.CONSTRAINT on storm-duration
+# MAX_DUR = []          # ... in either (or both) MIN_/MAX_DUR parameters/constants
+
 ### these parameters allow to pin down a time-dimension to the storms
-SEED_YEAR      = None                       # for your SIM/VAL to start in the current year
-# SEED_YEAR    = 2050                       # for your SIM/VAL to start in 2050
+# SEED_YEAR  = None                         # for your SIM/VAL to start in the current year
+SEED_YEAR    = 2023                         # for your SIM/VAL to start in 2050
+### bear in mind the 'SEASONS' variable!... (when toying with 'SEASONS_MONTHS')
 SEASONS_MONTHS = [[6,10], None]             # JUNE through OCTOBER (just ONE season)
 # # OR:
 # SEASONS_MONTHS = [[10,5], ['jul','sep']]  # OCT[y0] through MAY[y1] (& JULY[y1] through SEP[y1])
@@ -129,7 +138,7 @@ def PAR_UPDATE( args ):
 #~ DEFINE THE DAYS OF THE SEASON (to 'sample' from) ~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 def WET_SEASON_DAYS():
-    global SEED_YEAR, M_LEN, DATE_POOL, DATE_ORIGIN
+    global SEED_YEAR, M_LEN, DATE_POOL, DOY_POOL, DATE_ORIGIN
     SEED_YEAR = SEED_YEAR if SEED_YEAR else datetime.now().year
 # which season is None/void/null
     mvoid = list(map(lambda x: None in x, zip(SEASONS_MONTHS)))
@@ -144,17 +153,17 @@ def WET_SEASON_DAYS():
 # construct the date.times & update their years
     DATE_POOL = [None if v else \
         [datetime(year=SEED_YEAR,month=m[0],day=1),
-         datetime(year=SEED_YEAR,month=m[0],day=1) + relativedelta(months=l[0])] \
+          datetime(year=SEED_YEAR,month=m[0],day=1) + relativedelta(months=l[0])] \
             for m,l,v in zip(month, M_LEN, mvoid)]
     for i in range(len(DATE_POOL))[1:]:
         DATE_POOL[i] = None if mvoid[i] else \
             [DATE_POOL[i].__getitem__(0).replace(year=DATE_POOL[i-1].__getitem__(-1).year),
-             DATE_POOL[i].__getitem__(0).replace(year=DATE_POOL[i-1].__getitem__(-1).year)\
-                 + relativedelta(months=M_LEN[i].__getitem__(0))]
-# populate the limits with daily.datetimes
-    DATE_POOL = [None if v else \
-        pd.date_range(d.__getitem__(0), d.__getitem__(-1), freq='D', tz=TIME_ZONE) \
-            for d,v in zip(DATE_POOL, mvoid)]
+              DATE_POOL[i].__getitem__(0).replace(year=DATE_POOL[i-1].__getitem__(-1).year)\
+                  + relativedelta(months=M_LEN[i].__getitem__(0))]
+# extract Day(s)-Of-Year(s)
+# https://stackoverflow.com/a/623312/5885810
+    DOY_POOL = list(map(lambda v,d: None if v else
+        list(map(lambda d: d.timetuple().tm_yday, d)), mvoid, DATE_POOL ))
 # convert DATE_ORIGIN into 'datetime' (just to not let this line hanging out all alone)
 # https://stackoverflow.com/q/70460247/5885810  (timezone no pytz)
 # https://stackoverflow.com/a/65319240/5885810  (replace timezone)
@@ -170,7 +179,7 @@ def SHP_OPS():
     if MODE.lower() == 'validation':
         gagnet = pd.read_csv(GAG_FILE, sep=',', header='infer', comment='#')
     # just verify that your own gage.network has 'gage_id', X, Y, (Z optional)
-        gagnet = gagnet.loc[(gagnet['within_WG']==1) & (gagnet['with_data']==1)]
+        gagnet = gagnet.loc[(gagnet['within_c']==1) & (gagnet['with_dat']==1)]
     # put it into GeoPandas
         gagnet = gpd.GeoDataFrame(gagnet.gage, geometry=gpd.points_from_xy(
             gagnet.X, gagnet.Y, gagnet.Z, crs=f'EPSG:{WGEPSG}'))
@@ -190,10 +199,14 @@ def SHP_OPS():
     # BUFFRX.geometry.xs(0).minimum_rotated_rectangle.boundary
 
 # infering (and rounding) the limits of the buffer-zone
-    llim = np.floor( BUFFRX.bounds.minx /X_RES ) *X_RES #+X_RES/2
-    rlim = np.ceil(  BUFFRX.bounds.maxx /X_RES ) *X_RES #-X_RES/2
-    blim = np.floor( BUFFRX.bounds.miny /Y_RES ) *Y_RES #+Y_RES/2
-    tlim = np.ceil(  BUFFRX.bounds.maxy /Y_RES ) *Y_RES #-Y_RES/2
+    llim = np.floor( BUFFRX.bounds.minx[0] /X_RES ) *X_RES #+X_RES/2
+    rlim = np.ceil(  BUFFRX.bounds.maxx[0] /X_RES ) *X_RES #-X_RES/2
+    blim = np.floor( BUFFRX.bounds.miny[0] /Y_RES ) *Y_RES #+Y_RES/2
+    tlim = np.ceil(  BUFFRX.bounds.maxy[0] /Y_RES ) *Y_RES #-Y_RES/2
+    # llim = np.floor( BUFFRX.bounds.minx /X_RES ) *X_RES #+X_RES/2
+    # rlim = np.ceil(  BUFFRX.bounds.maxx /X_RES ) *X_RES #-X_RES/2
+    # blim = np.floor( BUFFRX.bounds.miny /Y_RES ) *Y_RES #+Y_RES/2
+    # tlim = np.ceil(  BUFFRX.bounds.maxy /Y_RES ) *Y_RES #-Y_RES/2
 
 # # BURN A SHP INTO RASTER & VISUALIZE IT
 #     tmp_file = 'tmp-raster.tif'
@@ -295,7 +308,7 @@ def RETRIEVE_PDF( TAG ):
     group = [subset[subset.index.str.contains( f'{TAG}{i}' )].dropna(
         how='all', axis='columns') for i in sort_id]
 
-    if TAG == 'DATIME_VMF':
+    if TAG == 'DATIME_VMF' or TAG == 'DOYEAR_VMF':
 # https://cmdlinetips.com/2018/01/5-examples-using-dict-comprehension/
 # https://blog.finxter.com/how-to-create-a-dictionary-from-two-numpy-arrays/
         distros = [{A:B for A, B in zip(['p','mus','kappas'],
@@ -306,7 +319,8 @@ def RETRIEVE_PDF( TAG ):
     else:
         distros = [{A:B for A, B in zip(name,
             [eval(f"stats.{item.split('+').__getitem__(-1)}"\
-                  f"({','.join( i.astype('str').values.ravel() )})")\
+                  # f"({','.join( i.astype('str').values.ravel() )})")\
+                  f"({','.join( i.dropna().astype('str').values.ravel() )})")\
                  for item, i in G.iterrows()] )} for G in group]
 
     return distros
@@ -317,7 +331,7 @@ def RETRIEVE_PDF( TAG ):
 def CHECK_PDF():
 # https://stackoverflow.com/a/10852003/5885810
 # https://stackoverflow.com/q/423379/5885810    (global variables)
-    global DATIME, COPULA, TOTALP, RADIUS, BETPAR, MAXINT, AVGDUR#, Z_CUTS
+    global DATIME, DOYEAR, COPULA, TOTALP, RADIUS, BETPAR, MAXINT, AVGDUR#, Z_CUTS
 
     try:
         DATIME = RETRIEVE_PDF( 'DATIME_VMF' )
@@ -327,7 +341,12 @@ def CHECK_PDF():
         warnings.warn(f'\nNo DATIME_VMF parameters were found in "{PRE_FILE}".'\
             '\nSTORM2.0 will proceed with TOD (Times Of Day) sampled from a '\
             'UNIFORM distribution. If this is not what you want, please '\
-            'update the aforementioned file accordingly.', stacklevel=2)
+            'accordingly update the aforementioned file.', stacklevel=2)
+
+    try:
+        DOYEAR = RETRIEVE_PDF( 'DOYEAR_VMF' )
+    except IndexError:
+        DOYEAR = RETRIEVE_PDF( 'DOYEAR_PMF' )
 
     TOTALP = RETRIEVE_PDF( 'TOTALP_PDF' )
     RADIUS = RETRIEVE_PDF( 'RADIUS_PDF' )
@@ -337,7 +356,7 @@ def CHECK_PDF():
     COPULA = RETRIEVE_PDF( 'COPULA_RHO' )
 
 # evaluate consistency between lists (lengths must be consistent with #SEASONS)
-    test = ['DATIME', 'COPULA', 'TOTALP', 'RADIUS', 'BETPAR', 'MAXINT', 'AVGDUR']
+    test = ['DATIME', 'DOYEAR', 'COPULA', 'TOTALP', 'RADIUS', 'BETPAR', 'MAXINT', 'AVGDUR']
     lens = list(map(len, list(map( eval, test )) ))
 # is there are variables having more PDFs than others
     assert len(np.unique(lens)) == 1, 'There are less (defined) PDFs for '\
@@ -431,44 +450,123 @@ def COPULA_SAMPLING( COP, seas, BAND='', N=1 ):
     return i_max, s_dur
 
 
-#~ SAMPLE TIMES.OF.DAY (either NORMAL (default) or CIRCULAR ~~~~~~~~~~~~~~~~~~~#
+#~ REMOVE DUPLICATED TIME.STAMPS ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-def TOD_SAMPLING( POOL, N, VMF, simy ):
-# here not only is uniformly sample the Day.Of.Season but also the Time.Of.Day
-    sample = interp1d(np.linspace(0, 1, num=len(POOL), endpoint=True),
-        range(len(POOL)), kind='linear', axis=0)( npr.uniform(0, 1, N) )
-    # # for reproducibility
-    #     range(len(POOL)), kind='linear', axis=0)( npr.RandomState(666).uniform(0, 1, N) )
-#    dates = POOL[ list(map(int, sample)) ] + relativedelta(years=simy)
-    dates = list(map(lambda d: d + relativedelta(years=simy),
-                     POOL[ list(map(int, sample)) ]))
-    times = ( sample - list(map(int, sample)) ) *24
-    if type(VMF) is dict:
+def DUAL_STAMP( stamps ):
+# finding and removing duplicated STAMPS (to avoid crashes from '.DROP_ISEL')
+# https://stackoverflow.com/a/11528676/5885810
+    repeat = np.setdiff1d(range(len(stamps)), np.unique(stamps, return_index=True).__getitem__(1))
+    while len(repeat) != 0:
+        stamps[repeat] = stamps[repeat] +1          # just add 1 second
+        repeat = np.setdiff1d(range(len(stamps)), np.unique(stamps, return_index=True).__getitem__(1))
+#!-WHAT HAPPENS WHE THE AGGREGATION EXCEEDS THE SEASON.LIMITS!??
+    return stamps
+
+
+#~ SAMPLE DAYS.OF.YEAR and TIMES.OF.DAY (CIRCULAR approach) ~~~~~~~~~~~~~~~~~~~#
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+def TOD_CIRCULAR( N, seas, simy ):
+    M = N
+    all_dates = []
+    while M>0:
+        doys = vonmises.tools.generate_mixtures( p=DOYEAR[ seas ]['p'],
+            mus=DOYEAR[ seas ]['mus'], kappas=DOYEAR[ seas ]['kappas'], sample_size=M)
+# to DOY
+        doys = (doys +np.pi) /(2*np.pi) *365 -1
+        # # to check out if the sampling is done correctly
+        # plt.hist(doys, bins=365)
+# into actual dates
+        dates = list(map(lambda d:
+            datetime(year=DATE_POOL[ seas ].__getitem__(0).year,month=1,day=1) +\
+            relativedelta(yearday=int( d )), doys.round(0) ))
+        sates = pd.Series( dates )              # to pandas
+# chopping into limits
+        sates = sates[(sates>=DATE_POOL[ seas ].__getitem__(0)) &\
+                      (sates<=DATE_POOL[ seas ].__getitem__(-1))]
+        M = len(dates) - len(sates)
+        # print(M)
+# updating to SIMY year (& storing)
+        # all_dates.append( sates + pd.DateOffset(years=simy) )
+        all_dates.append( sates.map(lambda d:d +relativedelta(years=simy)) )
+        # # the line above DOES NOT give you errors when dealing with VOID arrays
+    all_dates = pd.concat( all_dates, ignore_index=True )
+
+    """
+If you're doing "CIRCULAR" for TOD that means you did intall "vonMisesMixtures", ergo...
+then sampling for TOD 'must' also be circular (why don't ya?')
+    """
+# TIMES
 # sampling from MIXTURE.of.VON_MISES-FISHER.distribution
-        times = vonmises.tools.generate_mixtures(p=VMF['p'], mus=VMF['mus'],
-                                                 kappas=VMF['kappas'], sample_size=N)
+    times = vonmises.tools.generate_mixtures(p=DATIME[ seas ]['p'],
+        mus=DATIME[ seas ]['mus'], kappas=DATIME[ seas ]['kappas'], sample_size=N)
 # from radians to decimal HH.HHHH
-        times = (times +np.pi) /(2*np.pi) *24
+    times = (times +np.pi) /(2*np.pi) *24
     # # to check out if the sampling is done correctly
     # plt.hist(times, bins=24)
 # SECONDS since DATE_ORIGIN
+# https://stackoverflow.com/a/50062101/5885810
     stamps = list(map(lambda d,t:
-        ((d + timedelta(hours=t)) - DATE_ORIGIN).total_seconds(), dates, times))
+        ((d + timedelta(hours=t)) - DATE_ORIGIN).total_seconds(),
+        all_dates.dt.tz_localize(TIME_ZONE), times))
 # # pasting and formatting
 # # https://stackoverflow.com/a/67105429/5885810  (chopping milliseconds)
 #     stamps = list(map(lambda d,t: (d + timedelta(hours=t)).isoformat(timespec='seconds'),
 #                       dates, times))
-    return np.round(stamps, 0).astype('u8')     # i root for .astype('u4') instead
-    # return np.sort(stamps)
+    stamps = np.round(stamps, 0).astype('u8')       # i root for .astype('u4') instead
+    return DUAL_STAMP( stamps )
+    # return DUAL_STAMP( np.sort( stamps ) )
+
+
+#~ SAMPLE DAYS.OF.YEAR and TIMES.OF.DAY (DISCRETE approach) ~~~~~~~~~~~~~~~~~~~#
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+def TOD_DISCRETE( N, seas, simy ):
+    M = N
+    all_dates = []
+    while M>0:
+        soys = RANDOM_SAMPLING( DOYEAR[ seas ][''], M )
+# chopping into limits
+        doys = soys[(soys>=DATE_POOL[ seas ].__getitem__(0).timetuple().tm_yday) &\
+                    (soys<=DATE_POOL[ seas ].__getitem__(1).timetuple().tm_yday)]
+        # plt.hist(doys, bins=365)
+# into actual dates
+        dates = list(map(lambda d:
+            datetime(year=DATE_POOL[ seas ].__getitem__(0).year,month=1,day=1) +\
+            relativedelta(yearday=d), doys ))
+        sates = pd.Series( dates )              # to pandas
+        M = len(soys) - len(sates)
+        # print(M)
+# updating to SIMY year (& storing)
+        # all_dates.append( sates + pd.DateOffset(years=simy) )
+        all_dates.append( sates.map(lambda d:d +relativedelta(years=simy)) )
+        # # the line above DOES NOT give you errors when dealing with VOID arrays
+    all_dates = pd.concat( all_dates, ignore_index=True )
+
+    """
+If you're unlucky to be stuck with "DISCRETE"...
+then there's no point in using circular on TOD, is it?'
+    """
+# TIMES
+# sampling from a NORMAL distribution
+    times = npr.uniform(0, 1, N) *24
+    # # to check out if the sampling is done correctly
+    # plt.hist(times, bins=24)
+# SECONDS since DATE_ORIGIN
+# https://stackoverflow.com/a/50062101/5885810
+# https://stackoverflow.com/a/67105429/5885810  (chopping milliseconds)
+    stamps = list(map(lambda d,t:
+        ((d + timedelta(hours=t)) - DATE_ORIGIN).total_seconds(),
+        all_dates.dt.tz_localize(TIME_ZONE), times))
+# # pasting and formatting
+# # https://stackoverflow.com/a/67105429/5885810  (chopping milliseconds)
+#     stamps = list(map(lambda d,t: (d + timedelta(hours=t)).isoformat(timespec='seconds'),
+#                       dates, times))
+    stamps = np.round(stamps, 0).astype('u8')       # i root for .astype('u4') instead
+    return DUAL_STAMP( stamps )
+    # return DUAL_STAMP( np.sort( stamps ) )
 
 #-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #- RANDOM SMAPLING ----------------------------------------------------- (END) #
 #-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-
-
-
-
-
 
 
 #-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
@@ -577,9 +675,20 @@ def ZTRATIFICATION( Z_OUT ):
 #-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
 
+#~ REMOVE (ACCORDINGLY) DURATIONS OUTSIDE [MIN_DUR, MAX_DUR].range ~~~~~~~~~~~~#
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+def CHOP( DUR_S, DATES, STORM_MATRIX ):
+# find the indexes outside the limits
+    outdur = np.concatenate((np.where(DUR_S<MIN_DUR).__getitem__(0) if MIN_DUR else np.empty(0),
+        np.where(DUR_S>MAX_DUR).__getitem__(0) if MAX_DUR else np.empty(0))).astype('int')
+    d_bool = ~np.in1d(range(len(STORM_MATRIX)), outdur)
+# update 'vectors'
+    return DUR_S[ d_bool ], DATES[ d_bool ], [item for i, item in enumerate(STORM_MATRIX) if d_bool[i]]
+
+
 #~ STORING LAYERS OF RAINFALL TO COMPUTE AGGREGATES ~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-def RAIN_CUBE( STORM_MATRIX, DATES, MRAIN, ragg ):
+def RAIN_CUBE( STORM_MATRIX, DATES, MRAIN, ragg ):#ragg=CUM_S
     data = xr.DataArray(data=STORM_MATRIX, dims=['time','row','col'])
     data.coords['time'] = DATES
     # data.coords['time'] = pd.to_datetime(DATES, unit='s',
@@ -587,25 +696,27 @@ def RAIN_CUBE( STORM_MATRIX, DATES, MRAIN, ragg ):
 # unless you end up with more than 256.gauges per pixel... leave it as 'u1'
     data.coords['mask'] = (('row','col'), CATCHMENT_MASK.astype('u1'))
 # step-cumulative rainfall
-    dagg = data.where(data.mask!=0, np.nan).cumsum(dim='time', skipna=False)
-# if two consecutive aggretated fields are the same -> no storm fell within AOI
-    void = dagg.sum(dim=('row','col'), skipna=True)
-    void = np.where(np.diff(void) == 0).__getitem__(0) +1
+    # dagg = data.where(data.mask!=0, np.nan).cumsum(dim='time', skipna=False)
+    dagg = data.cumsum(dim='time', skipna=False).where(data.mask!=0, np.nan)
+
 # which aggretation(s) surpass MRAIN?
-# # the line below is enough for the SIMULATION.scenario
-#     suma = dagg.median(dim=('row','col'), skipna=True) + ragg
-# the line below allows SIMULATION & VALIDATION!!... basically, rainfall.depths are
-# duplicated/replicated by the 'MASK.frequency', and then the MEDIAN is computed.
-# https://stackoverflow.com/a/57889354/5885810  (apply xr.apply_ufunc)
-# https://stackoverflow.com/a/35349142/5885810  (weighted median)
-    suma = xr.apply_ufunc(lambda x: np.median(np.repeat(np.ravel(x), np.ravel(data.mask)))\
-        ,dagg ,input_core_dims=[['row','col']], vectorize=True, dask='allowed') + ragg
+# the line below is enough for the SIMULATION.scenario
+    suma = dagg.median(dim=('row','col'), skipna=True) + ragg
+# # the line below allows SIMULATION & VALIDATION!!... basically, rainfall.depths are
+# # duplicated/replicated by the 'MASK.frequency', and then the MEDIAN is computed.
+# # https://stackoverflow.com/a/57889354/5885810  (apply xr.apply_ufunc)
+# # https://stackoverflow.com/a/35349142/5885810  (weighted median)
+#     suma = xr.apply_ufunc(lambda x: np.nanmedian(np.repeat(np.ravel(x), np.ravel(data.mask)), skipna=False)\
+#         ,dagg ,input_core_dims=[['row','col']], vectorize=True, dask='allowed') + ragg
+
     xtra = np.where( suma >= MRAIN ).__getitem__(0)
+# if two consecutive aggretated fields are the same -> no storm fell within AOI
+    void = np.where(data.where(data.mask!=0, np.nan).sum(dim=('row','col'), skipna=True) == 0).__getitem__(0)
 # REMOVING VOID FIELDS
     drop = np.union1d(void, xtra[1:])
     data = data.drop_isel( time = drop )
+    # data.where(data.mask!=0, np.nan).cumsum(dim='time', skipna=False).median(dim=('row','col'))
 # finds whether MRAIN is reached (or not) in this (a given) iteration
-    #ends = 1 if xtra.size >= 1 else 0
     ends = np.delete(suma, drop).values.__getitem__(-1)
     # # do we want to output aggregated fields?
     # dagg = dagg.drop_isel( time = drop )
@@ -794,19 +905,23 @@ OUT ALL THIS SECTION & ACTIVATE THE SECTION "- WGS84.CRS (netcdf definition) -"
 
 # if ANOTHER/OTHER variable is needed
     ncxtra = sub_grp.createVariable('duration', 'f4', dimensions=('t','n')
-        ,zlib=True, complevel=9)#,fill_value=np.r_[0].astype('u4'))
+        ,zlib=True, complevel=9, fill_value=np.nan)# ,fill_value=np.r_[0].astype('u2'))
     ncxtra.long_name = 'storm duration'
-    ncxtra.units = 'minute'
-    ncxtra.precision = f'{1/60}'# (1 sec)'
+    ncxtra.units = 'minutes'
+    ncxtra.precision = f'{1/60}'                        # (1 sec); see last line of 'NC_FILE_II'
     # ncxtra.scale_factor = dur_SCL
     # ncxtra.add_offset = dur_ADD
+    iixtra = sub_grp.createVariable('sampled_total', 'f4', dimensions=('n')
+        ,zlib=True, complevel=9, fill_value=np.nan)
+    iixtra.long_name = 'seasonal total from PDF'
+    iixtra.units = 'mm'
 
     return sub_grp#, yy.getncattr('coordinates'), xx.getncattr('coordinates')
 
 
 #~ FILLING & CLOSURE OF THE NC (OUPUT) FILE  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-def NC_FILE_II( sub_grp, simy, KUBE, XTRA ):
+def NC_FILE_II( sub_grp, simy, KUBE, XTRA, TOTP ):
 # define & fill the TIME.variable/dimension
     nctnam = f'time_{"{:02d}".format(simy+1)}'
     # nctnam = f'time_{"{:03d}".format(simy+1)}'        # if more than 100 years/simul are planned
@@ -844,6 +959,8 @@ def NC_FILE_II( sub_grp, simy, KUBE, XTRA ):
     sub_grp.variables['duration'][:,simy] = ((XTRA *60).round(0) /60).astype('f4')
 # # https://stackoverflow.com/a/28425782/5885810  (round to the nearest-nth) -> second
 #     sub_grp.variables['duration'][:,simy] = list(map(lambda x: round(x /(1/60)) *1/60, ass ))
+    sub_grp.variables['sampled_total'][simy] = TOTP.astype('f4')
+
 
 #-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #- NC.FILE CREATION ---------------------------------------------------- (END) #
@@ -881,35 +998,41 @@ def STORM( NC_NAMES ):
 
     print('\nRUN PROGRESS')
     print('************')
+
 # FOR EVERY SEASON
     for seas in range( SEASONS ):#seas=0
+    # ESTABLISH HOW THE DOY-SAMPLING WILL BE DONE
+        tod_fun = 'TOD_CIRCULAR' if all( list(map(lambda k:
+            DOYEAR[ seas ].keys().__contains__(k), ['p', 'mus', 'kappas'])) ) else 'TOD_DISCRETE'
     # CREATE NC.FILE
         ncid = NC_NAMES[ seas ]
         nc = nc4.Dataset(ncid, 'w', format='NETCDF4')
         nc.created_on = datetime.now(tzlocal()).strftime('%Y-%m-%d %H:%M:%S %Z')#%z
-
         print(f'\nSEASON: {seas+1}/{SEASONS}')
+
 # FOR EVERY SIMULATION
         for nsim in range( NUMSIMS ):#nsim=0
             print(f'\t{MODE.upper()}: {"{:02d}".format(nsim+1)}/{"{:02d}".format(NUMSIMS)}')#, end='', flush=False)
         # 1ST FILL OF THE NC.FILE
             sub_grp = NC_FILE_I( nc, nsim )
+
 # FOR EVERY YEAR (of the SIMULATION)
             for simy in tqdm( range( NUMSIMYRS ), ncols=50 ):#simy=0
-            # sample total monsoonal rainfall to reach
-                MRAIN = SEASONAL_RAIN( TOTALP, seas )
-            # increase/decrease (such) total monsoonal rainfall
-                MRAIN = SEASONAL_RAIN( TOTALP, seas ) * (1 + PTOT_SC[ seas ] + ((nsim +1) *PTOT_SF[ seas ]))
-                # MRAIN = np.array([99])    # FOR TESTING PURPOSES
+            # sample total monsoonal rainfall to reach & increase/decrease (such) total monsoonal rainfall
+                MRAIN = SEASONAL_RAIN( TOTALP, seas ) * (1 + PTOT_SC[ seas ] + ((simy +0) *PTOT_SF[ seas ]))
+                # MHELP = SEASONAL_RAIN( TOTALP, seas )
+                # MRAIN = ( MHELP * (1 + PTOT_SC[ seas ]) ) * (1 + ((simy +1) *PTOT_SF[ seas ]))
+                # print(f'\nnsim:{nsim}  |  simy:{simy}  |  MRAIN:{MRAIN}')
             # initialize some VOID arrays
                 r_ain = []
                 l_ong = []
             # for the WGc-case we start with (~40 days/month * 5 months (WET-S1)) = 200
             # ...hence, we're assuming that (initially) we have more than 1 storm/day
             # ...(then we continue 'half-fing' the above seed)
-                NUM_S = 40 * M_LEN[ seas ].__getitem__(0)
-                # NUM_S = 150               # number of storms initial seed
+# 40*4 (FOR '_SF' RUNS); 40*2 (FOR '_SC' RUNS); 40*1 (FOR 'STANDARD' RUNS)
+                NUM_S = 40*1 * M_LEN[ seas ].__getitem__(0)
                 CUM_S = 0
+
 # DO IT UNTIL THE TOTAL RAINFALL IS REACHED OR NO MORE STORMS TO COMPUTE
                 while CUM_S < MRAIN and NUM_S >= 2:
                 # sample random storm centres
@@ -947,16 +1070,16 @@ def STORM( NC_NAMES ):
                 # sort back the arrays
                     MAX_I, DUR_S = list(map( lambda A: A[ np.argsort( ztats.index ) ], [MAX_I, DUR_S] ))
                 # increase/decrease maximum intensites
-                    MAX_I = MAX_I * (1 + STORMINESS_SC[ seas ] + ((nsim +1) *STORMINESS_SF[ seas ]))
-                # IF THERE IS A TRUNCATION IN DURATION... GET RID OF IT HERE
-                # ...AND UPDATE (POSTERIOR & ANTERIOR) LENGTHS OF ARRAYS!!
-
-                # sample some dates (for NC.storing)
-                    DATES = TOD_SAMPLING( DATE_POOL[ seas ], NUM_S, DATIME[ seas ], simy )
+                    MAX_I = MAX_I * (1 + STORMINESS_SC[ seas ] + ((simy +0) *STORMINESS_SF[ seas ]))
+                # sample some dates (to capture intra-seasonality & for NC.storing)
+                    DATES = eval(f'{tod_fun}( {NUM_S}, {seas}, {simy} )')
+                    # DATES = TOD_CIRCULAR( NUM_S, seas, simy )
                 # compute granular rainfall over intermediate rings
                     RINGS = LOTR( RADII, MAX_I, DUR_S, BETAS, CENTS )
                 # COLLECTING THE STORMS
                     STORM_MATRIX = list(map(RASTERIZE, RINGS, RINGO))
+                # updating/removing long/short storm-durations
+                    DUR_S, DATES, STORM_MATRIX = CHOP( DUR_S, DATES, STORM_MATRIX )
                 # rainfall aggregation
                     CUM_S, rain, remove = RAIN_CUBE( STORM_MATRIX, DATES, MRAIN, CUM_S )
 
@@ -967,19 +1090,23 @@ def STORM( NC_NAMES ):
                     NUM_S = int(NUM_S /2)#/1.5)
 
             # WARN IF THERE IS NO CONVERGING
-                assert not (CUM_S < MRAIN and NUM_S < 2), 'Iteration for SIMULATION '\
-                    f'{nsim}: YEAR {simy} not converging!\nTry a larger initial '\
+                assert not (CUM_S < MRAIN and NUM_S < 2), f'Iteration for {MODE.upper()} '\
+                    f'{nsim+1}: YEAR {simy} not converging!!\nTry a larger initial '\
                     'seed (i.e., variable "NUM_S"). If the problem persists, it '\
                     'might be very likely that the catchment (stochastic) '\
                     'parameterization is not adequate.' # the more you increase the slower it gets!!
 
-            # stack (rainfall) arrays
-                q_ain = xr.concat(r_ain, dim='time')
+                q_ain = xr.concat(r_ain, dim='time')    # stack (rainfall) arrays
                 idx_s = q_ain.time.argsort().data       # sort indexes
 
-            # LAST FILL OF THE NC.FILE
-                NC_FILE_II( sub_grp, simy, q_ain[ idx_s ], np.concatenate(l_ong)[ idx_s ] )
+            # here unique time.stamps are guaranteed globally!
+                # q_ain = q_ain.assign_coords(time = DUAL_STAMP( q_ain.time.data ) )
+                q_ain = q_ain.assign_coords(time = DUAL_STAMP( q_ain.time[idx_s].data ) )
 
+            # LAST FILL OF THE NC.FILE
+                NC_FILE_II( sub_grp, simy, q_ain, np.concatenate(l_ong)[ idx_s ], MRAIN )
+            #...IF (global) 'q_ain.time' is indeed modified by DUAL_STAMP, 'idx_s' might no completely
+            #...coincide with the updated 'q_ain.time'. Still, this is not an actual concern!
         nc.close()
 
 

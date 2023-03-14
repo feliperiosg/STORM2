@@ -13,6 +13,7 @@ For an 'in-prompt' help (on these parameters) type:
 """
 
 MODE = 'SImuLAtiON'     # Type of Run (case-insensitive). Either 'SIMULATION' or 'VALIDATION'
+# MODE = 'valiDaTION'     # Type of Run (case-insensitive). Either 'SIMULATION' or 'VALIDATION'
 SEASONS = 1             # Number of Seasons (per Run)
 NUMSIMS = 2             # Number of runs per Season
 NUMSIMYRS = 3           # Number of years per run (per Season)
@@ -26,19 +27,20 @@ STORMINESS_SF = Signed scalar specifying the progressive trend in the observed s
 *** a (un-)signed scalar implies stationary conditions akin to (current) observations ***
 """
 
-# # PARAMETER = [ S1 ,  S2 ]
-PTOT_SC       = [ 0. , - .0]
-PTOT_SF       = [+0.0, -0. ]
-STORMINESS_SC = [ 0.0, + .0]
-STORMINESS_SF = [-0.0,  0.0]
+# # PARAMETER = [ S1 ]
+PTOT_SC       = [0.00]
+PTOT_SF       = [ 0.0]
+STORMINESS_SC = [-0.0]
+STORMINESS_SF = [+0.0]
 
-# # if you intend to model just 1 SEASON
-# # YOU CAN DO (e.g.):
-# PTOT_SC       = [0.15]
-# PTOT_SF       = [ 0.0]
-# STORMINESS_SC = [-0.1]
-# STORMINESS_SF = [ 0.0]
-# # OR (e.g.):
+# # if you intend to model more than 1 SEASON, YOU CAN DO (e.g.):
+# # PARAMETER   = [ S1 ,  S2 ]
+# PTOT_SC       = [ 0. , - .0]
+# PTOT_SF       = [+0.0, -0. ]
+# STORMINESS_SC = [ 0.0, + .0]
+# STORMINESS_SF = [-0.0,  0.0]
+# ...or (e.g.):
+# # PARAMETER   = [ S1 ,  S2 ]
 # PTOT_SC       = [0.15, None]
 # PTOT_SF       = [ 0.0, None]
 # STORMINESS_SC = [-0.1, None]
@@ -55,14 +57,15 @@ be passed from the command line. Therefore, their modification/tweaking must
 carried out here.
 """
 
-PRE_FILE = './model_input/ProbabilityDensityFunctions_ONE.csv'  # output from 'pre_processing.py'
-GAG_FILE = './model_input/data_WG/gage_data--gageNetworkWG.csv' # gage (meta-)data (optional*)
+PRE_FILE = './model_input/ProbabilityDensityFunctions_ONE--ANALOG.csv'      # output from 'pre_processing.py'
+# PRE_FILE = './model_input/ProbabilityDensityFunctions_ONE--ANALOG-pmf.csv'  # output from 'pre_processing.py'
+GAG_FILE = './model_input/data_WG/gage_data--gageNetworkWG--DIGITAL.csv'    # gage (meta-)data (optional*)
 # GAG_FILE = None
-SHP_FILE = './model_input/shp/WG_Boundary.shp'                  # catchment shape-file in WGS84
-DEM_FILE = './model_input/dem/WGdem_wgs84.tif'                  # aoi raster-file (optional**)
-# DEM_FILE = './model_input/dem/WGdem_26912.tif'                # aoi raster-file in local CRS (***)
+SHP_FILE = './model_input/shp/WG_Boundary.shp'                      # catchment shape-file in WGS84
+DEM_FILE = './model_input/dem/WGdem_wgs84.tif'                      # aoi raster-file (optional**)
+# DEM_FILE = './model_input/dem/WGdem_26912.tif'                    # aoi raster-file in local CRS (***)
 # DEM_FILE = None
-OUT_PATH = './model_output'                                     # output folder
+OUT_PATH = './model_output'                                         # output folder
 """
 *   GAG_FILE is only required for 'validation' runs
 **  DEM_FILE is only required for runs at different altitudes, i.e., Z_CUTS != None
@@ -72,7 +75,7 @@ OUT_PATH = './model_output'                                     # output folder
     'zonal_stats(vectors=Z_OUT.geometry, raster=DEM_FILE, stats=Z_STAT) in 'ZTRATIFICATION'.
 """
 
-Z_CUTS = None           # (or Z_CUTS = []) for INT-DUR copula nodelling regardless altitude
+# Z_CUTS = None           # (or Z_CUTS = []) for INT-DUR copula modelling regardless altitude
 Z_CUTS = [1350, 1500]   # in meters!
 Z_STAT = 'median'       # statistic to retrieve from the DEM ['mean' or 'min'|'max'?? not 'count']
 """
@@ -104,9 +107,20 @@ Once the spatial domain of the storm is populated by 'rings-of-rainfall', STORM 
 the voids in between by linear interpolation.
 """
 
+MIN_DUR = 2             # in minutes!
+MAX_DUR = 60*24*5       # in minutes! -> 5 days (in this case)
+# # OR:
+# MIN_DUR = []          # use 'void' arrays if you want NO.CONSTRAINT on storm-duration
+# MAX_DUR = []          # ... in either (or both) MIN_/MAX_DUR parameters/constants
+"""
+MAX_DUR and MIN_DUR constraints the storm-duration of the sampled pairs
+from the intenstity-duration copula.
+"""
+
 ### these parameters allow to pin down a time-dimension to the storms
-SEED_YEAR      = None                       # for your SIM/VAL to start in the current year
-# SEED_YEAR    = 2050                       # for your SIM/VAL to start in 2050
+# SEED_YEAR  = None                         # for your SIM/VAL to start in the current year
+SEED_YEAR    = 2000                         # for your SIM/VAL to start in 2050
+### bear in mind the 'SEASONS' variable!... (when toying with 'SEASONS_MONTHS')
 SEASONS_MONTHS = [[6,10], None]             # JUNE through OCTOBER (just ONE season)
 # # OR:
 # SEASONS_MONTHS = [[10,5], ['jul','sep']]  # OCT[y0] through MAY[y1] (& JULY[y1] through SEP[y1])

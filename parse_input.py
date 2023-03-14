@@ -48,7 +48,7 @@ def PARCE( parser ):
     parser.add_argument('-sf', '--STORMINESS_SF', default=STORMINESS_SF, type=none_too,
         nargs='+', help='Relative change in the observed intensity progressively '\
             'applied to every simulated year. (one signed scalar per Season).')
-    parser.add_argument('--version', action='version', version='STORM 2.0')#'%(prog)s 2.0')
+    parser.add_argument('--version', action='version', version='STORM 2.1.0')#'%(prog)s 2.0')
 # Read arguments from command line
     args = parser.parse_args()
     # print(args)
