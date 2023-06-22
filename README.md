@@ -2,7 +2,7 @@
 
 [![GitHub release](https://img.shields.io/github/release/feliperiosg/STORM2.svg)](https://github.com/feliperiosg/STORM2/releases)
 [![made-with-python](https://img.shields.io/badge/Made%20with-Python-1f425f.svg)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://mit-license.org/)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 STORM 2 (STOchastic Rainstorm Model) is an upgrade on [STORM 1.0](https://github.com/blissville71/STORM), continuing to be a simple and flexible rainfall generator.
 
@@ -11,7 +11,7 @@ STORM 2 (STOchastic Rainstorm Model) is an upgrade on [STORM 1.0](https://github
 - Simulates (circular) rainfall storms from a set of PDFs (Probability Density Functions).
 - PDFs easily defined by the user (or retrieved from gauge data).
 - Shapefile (SHP) of the catchment required.
-- Provided a Digital Elevation Model (DEM), simulates rainfall storms with regard to altitude/elevation.
+- Provided a Digital Elevation Model (DEM), simulates rainfall storms with regard to elevation.
 - Spatial resolution (and CRS - Coordinate Reference System) customizable.
 - Spatial operations under a raster framework, which adds speed, versatility, and scalability.
 - Optimal output storing in [NetCDF](https://www.unidata.ucar.edu/software/netcdf/) format.
@@ -20,10 +20,11 @@ STORM 2 (STOchastic Rainstorm Model) is an upgrade on [STORM 1.0](https://github
 ### Improvements over STORM 1.0
 
 - Modelling of storm intensity and duration follows a (bi-variate) Gaussian copula framework.
-- Modelling of such Intensity-Duration copulas can be applied at different elevation bands/ranges within the catchment.
-- Modelling of storm's starting day-of-year (DOY), and time-of-day (TOD) follows a Circular Statistics approach (i.e., mixture of von Mises PDFs).
-- Output compressed into (geo-referenced) NetCDF files, readily available for visualization (e.g., via [Panoply](https://www.giss.nasa.gov/tools/panoply/)).
+- Modelling of such Intensity-Duration copulas can be applied at different elevation bands/ranges within the catchment, to account for orographic characteristics influencing precipitation.
+- Updated radial decay-rate model for rainfall intensity to incorporate potential, but unrecorded, maximum storm intensities.
+- Modelling of storm starting day-of-year (DOY) and time-of-day (TOD) follows a Circular Statistics approach (i.e., mixture of von Mises PDFs).
 - Pre-processing module to construct all necessary PDFs from gauge data.
+- Output compressed into (geo-referenced) NetCDF files, readily available for visualization (e.g., via [Panoply](https://www.giss.nasa.gov/tools/panoply/)).
 
 
 ## HOW TO RUN STORM 2

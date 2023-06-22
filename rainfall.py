@@ -256,7 +256,9 @@ def SHP_OPS():
     # if gt[2] != 0.0 or gt[4] != 0.0: print ('file is not stored with north up')
 
 # DEFINE THE COORDINATES OF THE XY.AXES
-    XS, YS = list(map( lambda a,b,c: np.arange(a.item() +c/2, b.item() +c/2, c),
+    # XS, YS = list(map( lambda a,b,c: np.arange(a.item() +c/2, b.item() +c/2, c),
+    #                   [llim,blim],[rlim,tlim],[X_RES,Y_RES] ))
+    XS, YS = list(map( lambda a,b,c: np.arange(a +c/2, b +c/2, c),
                       [llim,blim],[rlim,tlim],[X_RES,Y_RES] ))
 # flip YS??
     YS = np.flipud( YS )      # -> important...so rasters are compatible with numpys
@@ -575,13 +577,15 @@ then there's no point in using circular on TOD, is it?'
 
 #~ CREATE AN OUTER RING/POLYGON ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-# r[0] is where the maximus radius lays/reside
 # *1e3 to go from km to m
 def LAST_RING( all_radii, CENTS ):
+# "resolution" is the number of segments in which a.quarter.of.a.circle is divided into.
+# ...now it depends on the RADII/RES; the larger a circle is the more resolution it has.
     ring_last = list(map(lambda c,r: gpd.GeoDataFrame(
         geometry=gpd.points_from_xy(x=[c[0]], y=[c[1]] ).buffer(
-            # r[0] *1e3, resolution=int((3 if r[0] < 1 else 2)**np.ceil(r[0] /2)) ),
-            r *1e3, resolution=int((3 if r < 1 else 2)**np.ceil(r /2)) ),
+            # r *1e3, resolution=int((3 if r < 1 else 2)**np.ceil(r /2)) ),
+            # resolution=np.ceil(r /MIN_RADIUS) +1 ), # or maybe... "+1"??
+            resolution=np.ceil(r /MIN_RADIUS) +2 ), # or maybe... "+2"??
         crs=f'EPSG:{WGEPSG}'), CENTS, all_radii))
     return ring_last
 
@@ -1047,7 +1051,7 @@ def STORM( NC_NAMES ):
                 #     ax.set_aspect(aspect='equal')
                 #     for spine in ax.spines.values(): spine.set_edgecolor(None)
                 #     fig.tight_layout(pad=0)
-                #     buffrX.plot(edgecolor='xkcd:amethyst', alpha=1., zorder=2, linewidth=.77,
+                #     BUFFRX.plot(edgecolor='xkcd:amethyst', alpha=1., zorder=2, linewidth=.77,
                 #                 ls='dashed', facecolor='None', ax=ax)
                 #     plt.scatter(CENTS[:,0], CENTS[:,1], marker='P', s=37, edgecolors='none')
                 #     plt.show()

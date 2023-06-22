@@ -359,11 +359,12 @@ def RECESS_DATA( core_n, SEASON ):
     qmin_gage = 4
 # selected dataset
     decay = core_n.loc[(core_n.numb >= qmin_gage) & (core_n.S == SEASON)].copy(deep=True)
-    #[11039 rows x ...] STORMS
+    # [ 7423 rows x ...] STORMS -> for ANALOG
+    # [11039 rows x ...] STORMS
 
     print(f'rearranging gauges2centroid for season {SEASON}...')
 # compute RECESS (to relate radii & raint...from closest to furthest)
-    #recessort = [RECESS(*x) for x in tqdm( tuple(zip(decay.ngag, decay.nint)) )]
+    # recessort = [RECESS(*x) for x in tqdm( tuple(zip(decay.ngag, decay.nint)) )]
 # the line below is a bit faster! (& it has tqdm implemented!)...
 # https://stackoverflow.com/a/63832539/5885810
 # https://stackoverflow.com/a/69818437/5885810
@@ -400,6 +401,10 @@ def RECESS_DATA( core_n, SEASON ):
 # DO THE COPULA FOR THIS 'NEW' iMAX-DATASET-------------------------------------
     max_copula = decay.loc[decay.numb > qmin_gage, ['zavg','numb','davg']].iloc[ var_ok ]
     max_copula['max_int'] = pars[:,0]
+# # some small.ghost.xporting
+#     core_n.nint.explode().to_csv('./plot/maxint_core.txt', header=False, index=True, sep=',')
+#     decay.nint.explode().to_csv('./plot/maxint_decay.txt', header=False, index=True, sep=',')
+#     max_copula.max_int.explode().to_csv('./plot/maxint_max.txt', header=False, index=True, sep=',')
     return pars, max_copula
 
 #-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
