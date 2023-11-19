@@ -1,4 +1,19 @@
 import warnings
+
+# https://stackoverflow.com/a/9134842/5885810   (supress warning by message)
+warnings.filterwarnings('ignore', message='You will likely lose important '\
+    'projection information when converting to a PROJ string from another format')
+# WOS doesn't deal with "ecCodes"
+warnings.filterwarnings('ignore', message='Failed to load cfgrib - most likely '\
+    'there is a problem accessing the ecCodes library.')
+# https://github.com/slundberg/shap/issues/2909    (suppresing the one from numba 0.59.0)
+warnings.filterwarnings('ignore', message=".*The 'nopython' keyword.*")
+
+# https://stackoverflow.com/a/248066/5885810
+from os.path import abspath, dirname, join
+parent_d = dirname(__file__)    # otherwise, will append the path.of.the.tests
+# parent_d = './'               # to be used in IPython
+
 import numpy as np
 import pandas as pd
 # https://stackoverflow.com/a/65562060/5885810  (ecCodes in WOS)
@@ -11,7 +26,15 @@ from numpy import random as npr
 from statsmodels.distributions.copula.api import GaussianCopula
 #from statsmodels.distributions.empirical_distribution import ECDF
 from scipy.interpolate import interp1d
+
 from osgeo import gdal
+# https://gdal.org/api/python_gotchas.html#gotchas-that-are-by-design-or-per-history
+# https://github.com/OSGeo/gdal/blob/master/NEWS.md#ogr-370---overview-of-changes
+if gdal.__version__.__getitem__(0) == '3':# enable exceptions for GDAL<=4.0
+    gdal.UseExceptions()
+    # gdal.DontUseExceptions()
+    # gdal.__version__ # wos_ '3.6.2' # linux_ '3.7.0'
+
 from pyproj import Transformer
 from rasterio import fill
 from pointpats.random import poisson
@@ -28,12 +51,6 @@ from parameters import *
 from rasterstats import zonal_stats
 """ STORM2.0 ALSO runs WITHOUT this library!!! """
 import vonMisesMixtures as vonmises
-
-# https://stackoverflow.com/a/9134842/5885810   (supress warning by message)
-warnings.filterwarnings('ignore', message='You will likely lose important '\
-    'projection information when converting to a PROJ string from another format')
-warnings.filterwarnings('ignore', message='Failed to load cfgrib - most likely '\
-    'there is a problem accessing the ecCodes library.')
 
 
 #%% GREETINGS
@@ -75,8 +92,15 @@ PTOT_SF       = [ 0.0]
 STORMINESS_SC = [-0.0]
 STORMINESS_SF = [+0.0]
 
-PRE_FILE = './model_input/ProbabilityDensityFunctions_ONE--ANALOG.csv'      # output from 'pre_processing.py'
+# PARAMETER   = [ S1 ,  S2 ]
+PTOT_SC       = [ 0. , - .0]
+PTOT_SF       = [+0.0, -0. ]
+STORMINESS_SC = [ 0.0, + .0]
+STORMINESS_SF = [-0.0,  0.0]
+
+# PRE_FILE = './model_input/ProbabilityDensityFunctions_ONE--ANALOG.csv'      # output from 'pre_processing.py'
 # PRE_FILE = './model_input/ProbabilityDensityFunctions_ONE--ANALOG-pmf.csv'  # output from 'pre_processing.py'
+PRE_FILE = './model_input/ProbabilityDensityFunctions_TWO--ANALOG-py.csv'   # output from 'pre_processing.py'
 GAG_FILE = './model_input/data_WG/gage_data--gageNetworkWG--DIGITAL.csv'    # gage (meta-)data (optional*)
 # GAG_FILE = None
 SHP_FILE = './model_input/shp/WG_Boundary.shp'                      # catchment shape-file in WGS84
@@ -94,7 +118,8 @@ X_RES     = 1000        # in meters! (for the 'regular/local' CRS)
 Y_RES     = 1000        # in meters! (for the 'regular/local' CRS)
 BUFFER    = 5000        # in meters! -> buffer distance (out of the catchment)
 CLOSE_DIS = 0.15        # in km -> small circle emulating the storm centre's point/dot
-RINGS_DIS = 2.1         # in km -> distance between (rainfall) rings
+MINRADIUS =  max([X_RES, Y_RES]) /1e3
+RINGS_DIS =  MINRADIUS *(2) +.1         # in km -> distance between (rainfall) rings; heavily dependant on X_Y_RES
 
 MIN_DUR = 2             # in minutes!
 MAX_DUR = 60*24*5       # in minutes! -> 5 days (in this case)
@@ -106,10 +131,10 @@ MAX_DUR = 60*24*5       # in minutes! -> 5 days (in this case)
 # SEED_YEAR  = None                         # for your SIM/VAL to start in the current year
 SEED_YEAR    = 2023                         # for your SIM/VAL to start in 2050
 ### bear in mind the 'SEASONS' variable!... (when toying with 'SEASONS_MONTHS')
-SEASONS_MONTHS = [[6,10], None]             # JUNE through OCTOBER (just ONE season)
+# SEASONS_MONTHS = [[6,10], None]             # JUNE through OCTOBER (just ONE season)
 # # OR:
 # SEASONS_MONTHS = [[10,5], ['jul','sep']]  # OCT[y0] through MAY[y1] (& JULY[y1] through SEP[y1])
-# SEASONS_MONTHS = [['may','sep'],[11,12]]  # MAY through SEP (& e.g., NOV trhough DEC)
+SEASONS_MONTHS = [['may','sep'],[11, 1]]  # MAY through SEP (& e.g., NOV trhough DEC)
 TIME_ZONE      = 'US/Arizona'               # Local Time Zone (see links below for more names)
 # # OR:
 # TIME_ZONE    = 'UTC'
@@ -467,35 +492,41 @@ def DUAL_STAMP( stamps ):
 
 #~ SAMPLE DAYS.OF.YEAR and TIMES.OF.DAY (CIRCULAR approach) ~~~~~~~~~~~~~~~~~~~#
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-def TOD_CIRCULAR( N, seas, simy ):
-    M = N
+def TOD_CIRCULAR( N, seas, simy ):# N=NUM_S
+    # M = N
+    M = 0
     all_dates = []
-    while M>0:
+    # while M>0:
+    while M<N:
         doys = vonmises.tools.generate_mixtures( p=DOYEAR[ seas ]['p'],
-            mus=DOYEAR[ seas ]['mus'], kappas=DOYEAR[ seas ]['kappas'], sample_size=M)
+            mus=DOYEAR[ seas ]['mus'], kappas=DOYEAR[ seas ]['kappas'], sample_size=N)
 # to DOY
         doys = (doys +np.pi) /(2*np.pi) *365 -1
+    # negatives are giving me troubles (difficult to discern if they belong to january/december)
+        doys = doys[ doys>0 ]
         # # to check out if the sampling is done correctly
         # plt.hist(doys, bins=365)
 # into actual dates
         dates = list(map(lambda d:
-            datetime(year=DATE_POOL[ seas ].__getitem__(0).year,month=1,day=1) +\
+            datetime(year=DATE_POOL[ seas ][0].year,month=1,day=1) +\
             relativedelta(yearday=int( d )), doys.round(0) ))
         sates = pd.Series( dates )              # to pandas
 # chopping into limits
-        sates = sates[(sates>=DATE_POOL[ seas ].__getitem__(0)) &\
-                      (sates<=DATE_POOL[ seas ].__getitem__(-1))]
-        M = len(dates) - len(sates)
+        sates = sates[(sates>=DATE_POOL[ seas ][0]) & (sates<=DATE_POOL[ seas ][-1])]
+        # M = len(dates) - len(sates)
         # print(M)
 # updating to SIMY year (& storing)
         # all_dates.append( sates + pd.DateOffset(years=simy) )
         all_dates.append( sates.map(lambda d:d +relativedelta(years=simy)) )
         # # the line above DOES NOT give you errors when dealing with VOID arrays
+        M = np.sum(list(map(len, all_dates)))
     all_dates = pd.concat( all_dates, ignore_index=True )
+    # select random N-samples from an overflooded list
+    all_dates = all_dates.sample(n=N, replace=False,)#random_state=1)
 
     """
-If you're doing "CIRCULAR" for TOD that means you did intall "vonMisesMixtures", ergo...
-then sampling for TOD 'must' also be circular (why don't ya?')
+If you're doing "CIRCULAR" for DOY that means you did install "vonMisesMixtures"
+... therefore, sampling for TOD 'must' also be circular (why don't ya)
     """
 # TIMES
 # sampling from MIXTURE.of.VON_MISES-FISHER.distribution
@@ -509,11 +540,10 @@ then sampling for TOD 'must' also be circular (why don't ya?')
 # https://stackoverflow.com/a/50062101/5885810
     stamps = list(map(lambda d,t:
         ((d + timedelta(hours=t)) - DATE_ORIGIN).total_seconds(),
-        all_dates.dt.tz_localize(TIME_ZONE), times))
+        all_dates.dt.tz_localize( TIME_ZONE ), times))
 # # pasting and formatting
 # # https://stackoverflow.com/a/67105429/5885810  (chopping milliseconds)
-#     stamps = list(map(lambda d,t: (d + timedelta(hours=t)).isoformat(timespec='seconds'),
-#                       dates, times))
+#     stamps = list(map(lambda d,t: (d + timedelta(hours=t)).isoformat(timespec='seconds'), dates, times))
     stamps = np.round(stamps, 0).astype('u8')       # i root for .astype('u4') instead
     return DUAL_STAMP( stamps )
     # return DUAL_STAMP( np.sort( stamps ) )
@@ -521,11 +551,13 @@ then sampling for TOD 'must' also be circular (why don't ya?')
 
 #~ SAMPLE DAYS.OF.YEAR and TIMES.OF.DAY (DISCRETE approach) ~~~~~~~~~~~~~~~~~~~#
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-def TOD_DISCRETE( N, seas, simy ):
-    M = N
+def TOD_DISCRETE( N, seas, simy ):# N=NUM_S
+    # M = N
+    M = 0
     all_dates = []
-    while M>0:
-        soys = RANDOM_SAMPLING( DOYEAR[ seas ][''], M )
+    # while M>0:
+    while M<N:
+        soys = RANDOM_SAMPLING( DOYEAR[ seas ][''], N )
 # chopping into limits
         doys = soys[(soys>=DATE_POOL[ seas ].__getitem__(0).timetuple().tm_yday) &\
                     (soys<=DATE_POOL[ seas ].__getitem__(1).timetuple().tm_yday)]
@@ -535,13 +567,16 @@ def TOD_DISCRETE( N, seas, simy ):
             datetime(year=DATE_POOL[ seas ].__getitem__(0).year,month=1,day=1) +\
             relativedelta(yearday=d), doys ))
         sates = pd.Series( dates )              # to pandas
-        M = len(soys) - len(sates)
+        # M = len(soys) - len(sates)
         # print(M)
 # updating to SIMY year (& storing)
         # all_dates.append( sates + pd.DateOffset(years=simy) )
         all_dates.append( sates.map(lambda d:d +relativedelta(years=simy)) )
         # # the line above DOES NOT give you errors when dealing with VOID arrays
+        M = np.sum(list(map(len, all_dates)))
     all_dates = pd.concat( all_dates, ignore_index=True )
+    # select random N-samples from an overflooded list
+    all_dates = all_dates.sample(n=N, replace=False,)#random_state=1)
 
     """
 If you're unlucky to be stuck with "DISCRETE"...
@@ -578,14 +613,14 @@ then there's no point in using circular on TOD, is it?'
 #~ CREATE AN OUTER RING/POLYGON ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 # *1e3 to go from km to m
-def LAST_RING( all_radii, CENTS ):
+def LAST_RING( all_radii, CENTS ):# all_radii=RADII
 # "resolution" is the number of segments in which a.quarter.of.a.circle is divided into.
 # ...now it depends on the RADII/RES; the larger a circle is the more resolution it has.
     ring_last = list(map(lambda c,r: gpd.GeoDataFrame(
-        geometry=gpd.points_from_xy(x=[c[0]], y=[c[1]] ).buffer(
-            # r *1e3, resolution=int((3 if r < 1 else 2)**np.ceil(r /2)) ),
-            # resolution=np.ceil(r /MIN_RADIUS) +1 ), # or maybe... "+1"??
-            resolution=np.ceil(r /MIN_RADIUS) +2 ), # or maybe... "+2"??
+        geometry=gpd.points_from_xy(x=[c[0]], y=[c[1]] ).buffer( r *1e3,
+            # resolution=int((3 if r < 1 else 2)**np.ceil(r /2)) ),
+            # resolution=np.ceil(r /MINRADIUS) +1 ), # or maybe... "+1"??
+            resolution=np.ceil(r /MINRADIUS) +2 ), # or maybe... "+2"??
         crs=f'EPSG:{WGEPSG}'), CENTS, all_radii))
     return ring_last
 
@@ -608,15 +643,17 @@ def LOTR( RADII, MAX_I, DUR_S, BETAS, CENTS ):
 # r,p are lists (at first instance), and the numbers/atoms (in the second lambda)
 # .boundary gives the LINESTRING element
 # *1e3 to go from km to m
-# int((3 if r < 1 else 2)**np.ceil(r /2)) is an artifact to lower the resolution of small circles
+# np.ceil(r /MINRADIUS) +2 ) is an artifact to lower the resolution of small circles
 # ...a lower resolution in such circles increases the script.speed in the rasterisation process.
     rain_ring = list(map(lambda c,r,p: pd.concat( list(map(lambda r,p: gpd.GeoDataFrame(
-        {'rain':p, 'geometry':gpd.points_from_xy( x=[c[0]], y=[c[1]] ).buffer(
-            r *1e3, resolution=int((3 if r < 1 else 2)**np.ceil(r /2)) ).boundary},
+        {'rain':p, 'geometry':gpd.points_from_xy( x=[c[0]], y=[c[1]] ).buffer( r *1e3,
+            # resolution=int((3 if r < 1 else 2)**np.ceil(r /2)) ).boundary},
+            # resolution=np.ceil(r /MINRADIUS) +1 ).boundary}, # or maybe... "+1"??
+            resolution=np.ceil(r /MINRADIUS) +2 ).boundary}, # or maybe... "+2"??
         crs=f'EPSG:{WGEPSG}') , r, p)) ), CENTS, all_radii, all_rain))
 # # the above approach (in theory) is much? faster than the list.comprehension below
 #     rain_ring = [pd.concat( gpd.GeoDataFrame({'rain':p, 'geometry':gpd.points_from_xy(
-#         x=[c[0]], y=[c[1]] ).buffer(r *1e3, resolution=int((4 if r < 1 else 2)**np.ceil(r)) ).boundary},
+#         x=[c[0]], y=[c[1]] ).buffer(r *1e3, np.ceil(r /MINRADIUS) +2 ).boundary},
 #         crs=f'EPSG:{WGEPSG}') for p,r in zip(p,r) ) for c,r,p in zip(CENTS, all_radii, all_rain)]
 
     return rain_ring
@@ -669,7 +706,7 @@ def ZTRATIFICATION( Z_OUT ):
         qants = ztats.groupby(by='E').count().reset_index(level=0)
     else:
 # https://stackoverflow.com/a/17840195/5885810  (1-row pandas)
-        qants = pd.DataFrame( {'E':'', 'median':len(Z_OUT)}, index=[0] )
+        qants = pd.DataFrame( {'E':'', Z_STAT:len(Z_OUT)}, index=[0] )
         # ztats = pd.DataFrame( {'E':np.repeat('',len(Z_OUT))} )
         ztats = pd.Series( range(len(Z_OUT)) )      # 5x-FASTER! than the line above
     return qants, ztats
@@ -842,7 +879,7 @@ OUT ALL THIS SECTION & ACTIVATE THE SECTION "- WGS84.CRS (netcdf definition) -"
     yy = sub_grp.createVariable('projection_y_coordinate', 'i4', dimensions=('y')
                                 ,chunksizes=CHUNK_3D( [ len(YS) ], valSize=4))
     xx = sub_grp.createVariable('projection_x_coordinate', 'i4', dimensions=('x')
-                                ,chunksizes=CHUNK_3D( [ len(YS) ], valSize=4))
+                                ,chunksizes=CHUNK_3D( [ len(XS) ], valSize=4))
     yy[:] = YS
     xx[:] = XS
     # yy[:] = np.flipud( np.linspace(3498500,3520500,23) )
@@ -1004,7 +1041,7 @@ def STORM( NC_NAMES ):
     print('************')
 
 # FOR EVERY SEASON
-    for seas in range( SEASONS ):#seas=0
+    for seas in range( SEASONS ):#seas=0#seas=1
     # ESTABLISH HOW THE DOY-SAMPLING WILL BE DONE
         tod_fun = 'TOD_CIRCULAR' if all( list(map(lambda k:
             DOYEAR[ seas ].keys().__contains__(k), ['p', 'mus', 'kappas'])) ) else 'TOD_DISCRETE'
@@ -1034,7 +1071,7 @@ def STORM( NC_NAMES ):
             # ...hence, we're assuming that (initially) we have more than 1 storm/day
             # ...(then we continue 'half-fing' the above seed)
 # 40*4 (FOR '_SF' RUNS); 40*2 (FOR '_SC' RUNS); 40*1 (FOR 'STANDARD' RUNS)
-                NUM_S = 40*1 * M_LEN[ seas ].__getitem__(0)
+                NUM_S = 40*2 * M_LEN[ seas ].__getitem__(0)
                 CUM_S = 0
 
 # DO IT UNTIL THE TOTAL RAINFALL IS REACHED OR NO MORE STORMS TO COMPUTE
@@ -1062,7 +1099,7 @@ def STORM( NC_NAMES ):
                     # [BETPAR[ seas ][''].cdf(x) if x else None for x in [-.035, .035]]
                     BETAS = RANDOM_SAMPLING( BETPAR[ seas ][''], NUM_S )
                 # sampling maxima radii
-                    RADII = TRUNCATED_SAMPLING( RADIUS[ seas ][''], [1* MIN_RADIUS, None], NUM_S )
+                    RADII = TRUNCATED_SAMPLING( RADIUS[ seas ][''], [1* MINRADIUS, None], NUM_S )
                 # polygon(s) for maximum radii
                     RINGO = LAST_RING( RADII, CENTS )
 
@@ -1117,5 +1154,15 @@ def STORM( NC_NAMES ):
 #%%
 
 if __name__ == '__main__':
-    # testing for only ONE Season!
-    STORM( [f'./model_output/{MODE[:3].upper()}_test.nc'] )
+
+    from pathlib import Path
+    Path( abspath( join(parent_d, OUT_PATH) ) ).mkdir(parents=True, exist_ok=True)
+    # define NC.output file.names
+    NC_NAMES =  list(map( lambda a,b,c: f'{abspath( join(parent_d, OUT_PATH) )}/{MODE[:3].upper()}_'\
+        f'{datetime.now(tzlocal()).strftime("%y%m%dT%H%M")}_S{a+1}_{b.strip()}_{c.strip()}.nc',\
+        # range(SEASONS), PTOT_SCENARIO, STORMINESS_SCENARIO ))
+        range(SEASONS), ['nada','zero'], ['zero','nada'] ))
+
+    STORM( NC_NAMES )
+    # # testing for only ONE Season!
+    # STORM( [f'./model_output/{MODE[:3].upper()}_test.nc'] )

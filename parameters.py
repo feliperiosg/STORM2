@@ -14,7 +14,7 @@ For an 'in-prompt' help (on these parameters) type:
 
 MODE = 'SImuLAtiON'     # Type of Run (case-insensitive). Either 'SIMULATION' or 'VALIDATION'
 # MODE = 'valiDaTION'     # Type of Run (case-insensitive). Either 'SIMULATION' or 'VALIDATION'
-SEASONS = 1             # Number of Seasons (per Run)
+SEASONS = 2             # Number of Seasons (per Run)
 NUMSIMS = 2             # Number of runs per Season
 NUMSIMYRS = 3           # Number of years per run (per Season)
 
@@ -27,19 +27,19 @@ STORMINESS_SF = Signed scalar specifying the progressive trend in the observed s
 *** a (un-)signed scalar implies stationary conditions akin to (current) observations ***
 """
 
-# # PARAMETER = [ S1 ]
-PTOT_SC       = [0.00]
-PTOT_SF       = [ 0.0]
-STORMINESS_SC = [-0.0]
-STORMINESS_SF = [+0.0]
+# # PARAMETER   = [ S1 ]
+# PTOT_SC       = [0.00]
+# PTOT_SF       = [ 0.0]
+# STORMINESS_SC = [-0.0]
+# STORMINESS_SF = [+0.0]
 
-# # if you intend to model more than 1 SEASON, YOU CAN DO (e.g.):
-# # PARAMETER   = [ S1 ,  S2 ]
-# PTOT_SC       = [ 0. , - .0]
-# PTOT_SF       = [+0.0, -0. ]
-# STORMINESS_SC = [ 0.0, + .0]
-# STORMINESS_SF = [-0.0,  0.0]
-# ...or (e.g.):
+# if you intend to model more than 1 SEASON, YOU CAN DO (e.g.):
+# PARAMETER   = [ S1 ,  S2 ]
+PTOT_SC       = [ 0. , - .0]
+PTOT_SF       = [+0.0, -0. ]
+STORMINESS_SC = [ 0.0, + .0]
+STORMINESS_SF = [-0.0,  0.0]
+# # ...or (e.g.):
 # # PARAMETER   = [ S1 ,  S2 ]
 # PTOT_SC       = [0.15, None]
 # PTOT_SF       = [ 0.0, None]
@@ -57,8 +57,9 @@ be passed from the command line. Therefore, their modification/tweaking must
 carried out here.
 """
 
-PRE_FILE = './model_input/ProbabilityDensityFunctions_ONE--ANALOG.csv'      # output from 'pre_processing.py'
+# PRE_FILE = './model_input/ProbabilityDensityFunctions_ONE--ANALOG.csv'      # output from 'pre_processing.py'
 # PRE_FILE = './model_input/ProbabilityDensityFunctions_ONE--ANALOG-pmf.csv'  # output from 'pre_processing.py'
+PRE_FILE = './model_input/ProbabilityDensityFunctions_TWO--ANALOG-py.csv'   # output from 'pre_processing.py'
 GAG_FILE = './model_input/data_WG/gage_data--gageNetworkWG--DIGITAL.csv'    # gage (meta-)data (optional*)
 # GAG_FILE = None
 SHP_FILE = './model_input/shp/WG_Boundary.shp'                      # catchment shape-file in WGS84
@@ -92,7 +93,11 @@ X_RES     = 1000        # in meters! (for the 'regular/local' CRS)
 Y_RES     = 1000        # in meters! (for the 'regular/local' CRS)
 BUFFER    = 5000        # in meters! -> buffer distance (out of the catchment)
 CLOSE_DIS = 0.15        # in km -> small circle emulating the storm centre's point/dot
-RINGS_DIS = 2.1         # in km -> distance between (rainfall) rings
+# storm minimum radius depends on spatial.resolution (for raster purposes);
+# it must be used/assigned in KM, as its distribution was 'computed' in KM
+MINRADIUS =  max([X_RES, Y_RES]) /1e3
+# distance between (rainfall) rings; heavily dependant on X_Y_RES | MINRADIUS
+RINGS_DIS =  MINRADIUS *(2) +.1         # in km -> distance between (rainfall) rings; heavily dependant on X_Y_RES
 """
 BUFFER extends the catchment boundary (some given distance), thus delimiting the area
 for which the storm centres are generated (within).
@@ -121,10 +126,10 @@ from the intenstity-duration copula.
 # SEED_YEAR  = None                         # for your SIM/VAL to start in the current year
 SEED_YEAR    = 2000                         # for your SIM/VAL to start in 2050
 ### bear in mind the 'SEASONS' variable!... (when toying with 'SEASONS_MONTHS')
-SEASONS_MONTHS = [[6,10], None]             # JUNE through OCTOBER (just ONE season)
+# SEASONS_MONTHS = [[6,10], None]             # JUNE through OCTOBER (just ONE season)
 # # OR:
 # SEASONS_MONTHS = [[10,5], ['jul','sep']]  # OCT[y0] through MAY[y1] (& JULY[y1] through SEP[y1])
-# SEASONS_MONTHS = [['may','sep'],[11,12]]  # MAY through SEP (& e.g., NOV trhough DEC)
+SEASONS_MONTHS = [['may','sep'],[11,1 ]]  # MAY through SEP (& e.g., NOV trhough DEC)
 TIME_ZONE      = 'US/Arizona'               # Local Time Zone (see links below for more names)
 # # OR:
 # TIME_ZONE    = 'UTC'
