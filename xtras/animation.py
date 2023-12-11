@@ -12,6 +12,16 @@ from PIL import Image
 from tqdm import tqdm
 from pathlib import Path
 
+from cmcrameri import cm as cmc
+from matplotlib import font_manager
+font_manager.findSystemFonts(fontpaths=None, fontext="ttf")
+# you'd have first to install "Russo One" [or use an available font]
+font_manager.findfont('Russo One')
+
+plt.rcParams.update(plt.rcParamsDefault)
+# 'MEIRYO' is not in LINUX :(
+plt.rcParams["font.family"] = 'Trebuchet MS', 'Impact', 'Russo One'#, 'Meiryo' #,'Bitstream Vera Sans'
+
 # https://treyhunner.com/2018/12/why-you-should-be-using-pathlib/
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
@@ -84,7 +94,7 @@ def eFORMAT(x, pos):
 
 #~ pimps up the plot ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-def LAY_OUT(NUM, ZZ, LIMS, TIKS, KOLOR, LOG, LAT, LAB):
+def LAY_OUT(NUM, ZZ, LIMS, TIKS, KOLOR, LOG, LAT, LAB, LAB2):
     ax = plt.subplot(NUM, projection=ccrs.Projection(EPSG))
     ax.set_aspect(aspect='equal')
     ax.spines['geo'].set_visible( False )
@@ -109,12 +119,15 @@ def LAY_OUT(NUM, ZZ, LIMS, TIKS, KOLOR, LOG, LAT, LAB):
                    y_coord[0]-y_res/2, y_coord[-1]+y_res/2], crs=ccrs.CRS(EPSG))
     ax.add_feature(catchmnt, edgecolor='xkcd:barbie pink', linewidth=0.9, zorder=10)
 # add time.stamp
-    ax.text(0.01, 0.97, LAB, color='xkcd:electric pink', fontsize=12, fontweight='normal',
+    ax.text(0.01, 0.07, LAB, color='xkcd:electric pink', fontsize=13, fontweight='normal',
         horizontalalignment='left', va='center', clip_on=True, transform=ax.transAxes)
+# add pane.label (for publications)
+    ax.text(LAB2[0],LAB2[1],LAB2[2], color='xkcd:black', fontsize=30, fontname='Russo One',
+        ha='left', va='center', clip_on=True, transform=ax.transAxes)#,fontweight='bold')
 # use a logarithmic scale
     if LOG==1:
         normo = mpl.colors.SymLogNorm(linthresh=0.01, linscale=0.075, vmin=LIMS[0], vmax=LIMS[1])
-        formo = mpl.ticker.FuncFormatter( eFORMAT )
+        formo = mticker.FuncFormatter( eFORMAT )
     else:
         normo = mpl.colors.Normalize(vmin=LIMS[0], vmax=LIMS[1])
         formo = f'%.{0}f'
@@ -123,11 +136,14 @@ def LAY_OUT(NUM, ZZ, LIMS, TIKS, KOLOR, LOG, LAT, LAB):
 # add colorbar
     cbar = plt.colorbar(cs, shrink=2/3, aspect=27, orientation='vertical', pad=.025,
                         ticks=TIKS, extend='max', extendfrac=0.02, format=formo, ax=ax) #,spacing='proportional'
+                        # ticks=[], extend='max', extendfrac=0.02, format=formo, ax=ax) #,spacing='proportional'
     # cbar.set_clim(0.1,1)                      # to.limit.the.MAP.COLORS
+# https://stackoverflow.com/a/20079644/5885810  (remove darn minor.ticks)
+    cbar.ax.minorticks_off()
 # https://stackoverflow.com/a/27672236/5885810  (no border color bar)
     cbar.outline.set_visible( False )
     cbar.ax.yaxis.set_label_position('left')    # cbar.ax.xaxis.set_label_position('top')
-    cbar.ax.tick_params(labelsize=12, direction='inout', color='xkcd:blood orange',
+    cbar.ax.tick_params(labelsize=13, direction='inout', color='xkcd:blood orange',
                         pad=1, width=0.39, bottom='False')
     return cbar
 
@@ -138,11 +154,11 @@ def PLOT( IDX ):#IDX=91#IDX=62
     fig = plt.figure(figsize=(10*1.1, 10), dpi=150)
     fig.tight_layout(pad=0)
     ax1 = LAY_OUT(NUM=211, ZZ=da[IDX,:], LIMS=lim_da, TIKS=[0,.02,.1,.2,.5,2,5,10,50,100,300],
-                  KOLOR=plt.cm.nipy_spectral_r, LOG=1, LAT=0, LAB=DATE[IDX])
-    ax1.set_label('storm-event rainfall  [mm]', fontsize=12)
-    ax2 = LAY_OUT(NUM=212, ZZ=suma[IDX,:], LIMS=limsum, TIKS=np.linspace(limsum[0], limsum[-1], 7),
-                  KOLOR=plt.cm.gist_ncar_r, LOG=0, LAT=1, LAB='')
-    ax2.set_label('seasonal aggregated rainfall  [mm]', fontsize=12)
+                  KOLOR=cmc.lipari_r, LOG=1, LAT=0, LAB=DATE[IDX], LAB2=[0.08,0.89,'']) #cmc.batlowW #plt.cm.nipy_spectral_r
+    ax1.set_label('storm-event rainfall  [mm]', fontsize=13)
+    ax2 = LAY_OUT(NUM=212, ZZ=suma[IDX,:], LIMS=limsum, TIKS=np.arange(limsum[0], limsum[-1] +50, 50),
+                  KOLOR=cmc.hawaii_r, LOG=0, LAT=1, LAB='', LAB2=[0.08,0.89,'']) #plt.cm.gist_ncar_r
+    ax2.set_label('seasonal aggregated rainfall  [mm]', fontsize=13)
     fig.subplots_adjust(left=0, bottom=0, right=1, top=1, wspace=0.1, hspace=+0.02)
     plt.savefig(ROOT_DIR.joinpath( f'./xtras/{png_tag}{"{:03d}".format(IDX)}.png' ),
     # plt.savefig(ROOT_DIR.joinpath( f'./xtras/{png_tag}{"{:03d}".format(91)}.png' ),
